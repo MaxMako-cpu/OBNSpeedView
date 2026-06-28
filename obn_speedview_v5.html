@@ -2751,7 +2751,7 @@ function handleLiveRow(csvRow) {
   state._dfEpochs.push(epoch);
 
   // update minute bucket
-  const mEpoch = Math.floor(epoch / 60) * 60;
+  const mEpoch = Math.floor(epoch / state.currentBucket) * state.currentBucket;
   let bucket = state.minuteTrack.find(p => p.epoch === mEpoch);
   if (!bucket) {
     bucket = { epoch: mEpoch, ifr: null, u334: null, u333: null };
