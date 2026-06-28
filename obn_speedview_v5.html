@@ -1,0 +1,3082 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OBN SpeedView v2.8</title>
+<style>
+  @font-face {
+    font-family: 'JetBrains Mono';
+    src: local('JetBrains Mono'), local('JetBrainsMono-Regular');
+  }
+
+  :root {
+    /* ---- design tokens ---- */
+    --bg: #050a12;
+    --bg-deep: #02060b;
+    --panel: #0c1622;
+    --panel-2: #0e1a28;
+    --grid: #173049;
+    --grid-soft: #112436;
+    --text: #d8e6f2;
+    --text-dim: #6f8aa3;
+    --text-faint: #3d5168;
+
+    --cyan: #7fd4ff;
+    --cyan-glow: rgba(127, 212, 255, 0.55);
+    --magenta: #ff5fc1;
+    --magenta-glow: rgba(255, 95, 193, 0.5);
+    --red: #ff4d6a;
+    --red-glow: rgba(255, 77, 106, 0.5);
+    --green: #3ee07a;
+    --green-glow: rgba(62, 224, 122, 0.5);
+    --amber: #ffb454;
+    --amber-glow: rgba(255, 180, 84, 0.45);
+    --danger: #ff6b6b;
+
+    --radius: 6px;
+    --mono: 'JetBrains Mono', 'SF Mono', Consolas, monospace;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0; padding: 0;
+    width: 100%; height: 100%;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--mono);
+    overflow: hidden;
+  }
+
+  body {
+    background-image:
+      radial-gradient(ellipse 1200px 600px at 20% -10%, rgba(127,212,255,0.05), transparent 60%),
+      radial-gradient(ellipse 800px 500px at 100% 100%, rgba(62,224,122,0.04), transparent 60%);
+  }
+
+  /* faint animated scanline texture across whole app, very subtle */
+  body::before {
+    content: "";
+    position: fixed; inset: 0;
+    pointer-events: none;
+    background: repeating-linear-gradient(
+      to bottom,
+      rgba(255,255,255,0.012) 0px,
+      rgba(255,255,255,0.012) 1px,
+      transparent 1px,
+      transparent 3px
+    );
+    z-index: 9999;
+    mix-blend-mode: overlay;
+  }
+
+  #app {
+    display: flex;
+    flex-direction: column;
+    width: 100vw;
+    height: 100vh;
+  }
+
+  /* ---------------- topbar ---------------- */
+  #topbar {
+    display: flex;
+    flex-direction: column;
+    background: linear-gradient(180deg, var(--panel) 0%, #0a1420 100%);
+    border-bottom: 1px solid var(--grid);
+    flex-shrink: 0;
+    position: relative;
+  }
+  #topbar::after {
+    content: "";
+    position: absolute; left: 0; right: 0; bottom: -1px; height: 1px;
+    background: linear-gradient(90deg, transparent, var(--cyan-glow), transparent);
+    opacity: 0.6;
+  }
+  #topbar-row1, #topbar-row2 {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 14px;
+    flex-wrap: nowrap;
+  }
+  #topbar-row1 {
+    border-bottom: 1px solid var(--grid-soft);
+  }
+
+  .brand {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    margin-right: 8px;
+  }
+  .brand-mark {
+    width: 9px; height: 9px;
+    border-radius: 50%;
+    background: var(--cyan);
+    box-shadow: 0 0 8px 2px var(--cyan-glow);
+    animation: pulse 2.4s ease-in-out infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.5; transform: scale(0.78); }
+  }
+  .brand-title {
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 2.5px;
+    color: var(--text);
+    text-shadow: 0 0 12px rgba(127,212,255,0.25);
+  }
+
+  .toolbar-spacer { flex: 1; }
+
+  button.tbtn {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: 1px;
+    color: var(--text);
+    background: #0e1924;
+    border: 1px solid var(--grid);
+    border-radius: var(--radius);
+    padding: 7px 13px;
+    cursor: pointer;
+    transition: border-color 0.15s, color 0.15s, box-shadow 0.15s, background 0.15s;
+    white-space: nowrap;
+  }
+  button.tbtn:hover {
+    border-color: var(--cyan);
+    color: var(--cyan);
+    box-shadow: 0 0 10px -2px var(--cyan-glow);
+  }
+  button.tbtn:active { transform: translateY(1px); }
+  button.tbtn.active {
+    background: #0a2b30;
+    border-color: var(--cyan);
+    color: var(--cyan);
+    box-shadow: 0 0 12px -2px var(--cyan-glow), inset 0 0 8px -4px var(--cyan-glow);
+  }
+  button.tbtn.danger {
+    color: #ff9a9a;
+    background: #1a0e0e;
+    border-color: #5c2626;
+  }
+  button.tbtn.danger:hover {
+    border-color: var(--danger);
+    color: var(--danger);
+    box-shadow: 0 0 10px -2px rgba(255,107,107,0.4);
+  }
+  button.tbtn:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+    pointer-events: none;
+  }
+  button.tbtn.success {
+    color: #6effc2;
+    background: #061a10;
+    border-color: #1a5c3a;
+  }
+  button.tbtn.success:hover {
+    border-color: #6effc2;
+    color: #6effc2;
+    box-shadow: 0 0 10px -2px rgba(110,255,194,0.35);
+  }
+  button.tbtn.success:disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+    pointer-events: none;
+  }
+  .log-btn-group {
+    display: flex;
+    gap: 0;
+  }
+  .log-btn-group button:first-child {
+    border-radius: var(--radius) 0 0 var(--radius);
+  }
+  .log-btn-group button:last-child {
+    border-radius: 0 var(--radius) var(--radius) 0;
+    border-left: none;
+  }
+  input[type=file] { display: none; }
+
+  /* ---------------- body layout ---------------- */
+  #body {
+    flex: 1;
+    display: flex;
+    min-height: 0;
+    padding: 10px;
+    gap: 10px;
+  }
+
+  #left-col {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    gap: 10px;
+  }
+
+  /* legend items now live in topbar as toggle buttons */
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+    user-select: none;
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: 1px;
+    color: var(--text-dim);
+    background: #0e1924;
+    border: 1px solid var(--grid);
+    border-radius: var(--radius);
+    padding: 7px 11px;
+    transition: border-color 0.15s, color 0.15s, box-shadow 0.15s, opacity 0.15s;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+  .legend-item:hover {
+    border-color: var(--text-dim);
+    color: var(--text);
+  }
+  .legend-item.off {
+    opacity: 0.38;
+  }
+  .legend-item.off:hover { opacity: 0.6; }
+  .legend-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+  #sample-count {
+    color: var(--amber);
+    font-size: 10px;
+    letter-spacing: 0.5px;
+    white-space: nowrap;
+  }
+  #sample-count .dot {
+    display: inline-block;
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--amber);
+    margin-right: 5px;
+    box-shadow: 0 0 6px 1px var(--amber-glow);
+  }
+
+  /* region bar */
+  #region-bar {
+    background: var(--panel);
+    border: 1px solid var(--grid);
+    border-radius: var(--radius);
+    padding: 7px 12px;
+    flex-shrink: 0;
+  }
+  #region-hint {
+    font-size: 10px;
+    font-style: italic;
+    color: var(--text-dim);
+    margin-bottom: 4px;
+  }
+  #region-hint.active { color: var(--cyan); font-style: normal; }
+  #region-chips {
+    display: flex;
+    gap: 6px;
+    overflow-x: auto;
+    min-height: 22px;
+  }
+  .chip {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: #1a1f0e;
+    border: 1px solid #4d4520;
+    border-radius: 12px;
+    padding: 3px 6px 3px 10px;
+    font-size: 10px;
+    color: var(--amber);
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+  .chip button {
+    background: none; border: none; color: #fca5a5;
+    cursor: pointer; font-size: 11px; padding: 0 2px;
+    font-family: var(--mono);
+  }
+  .chip button:hover { color: #f87171; }
+
+  /* chart area */
+  #chart-wrap {
+    flex: 1;
+    background: var(--panel);
+    border: 1px solid var(--grid);
+    border-radius: var(--radius);
+    position: relative;
+    min-height: 0;
+    overflow: hidden;
+  }
+  #chart-canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+    cursor: crosshair;
+  }
+  #chart-wrap.select-mode #chart-canvas { cursor: cell; }
+  #chart-empty {
+    position: absolute; inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    gap: 10px;
+    color: var(--text-faint);
+    font-size: 12px;
+    letter-spacing: 1px;
+    pointer-events: none;
+  }
+  #chart-empty .ring {
+    width: 46px; height: 46px;
+    border-radius: 50%;
+    border: 1px solid var(--grid);
+    border-top-color: var(--cyan);
+    opacity: 0.4;
+    animation: spin 3s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .hidden { display: none !important; }
+
+  /* ---------------- readout panel ---------------- */
+  #readout {
+    width: 330px;
+    flex-shrink: 0;
+    min-width: 0;
+    background: var(--panel);
+    border: 1px solid var(--grid);
+    border-radius: var(--radius);
+    padding: 16px;
+    overflow-y: auto;
+    overflow-x: hidden;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    box-sizing: border-box;
+  }
+  #readout::-webkit-scrollbar { width: 6px; }
+  #readout::-webkit-scrollbar-thumb { background: var(--grid); border-radius: 3px; }
+
+  .ro-title {
+    color: var(--text-dim);
+    font-size: 10px;
+    letter-spacing: 2.5px;
+  }
+  #ro-time {
+    font-size: 26px;
+    font-weight: 700;
+    color: var(--text);
+    text-shadow: 0 0 16px rgba(127,212,255,0.18);
+    line-height: 1.1;
+  }
+  #ro-date {
+    color: var(--text-dim);
+    font-size: 10px;
+  }
+  .ro-hline {
+    height: 1px;
+    background: var(--grid);
+    border: none;
+    margin: 2px 0;
+  }
+  .ro-row {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    min-width: 0;
+  }
+  .ro-row .dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+  .ro-row .name {
+    color: var(--text-dim);
+    font-size: 11px;
+    flex: 1;
+    min-width: 0;
+  }
+  .ro-row .val {
+    font-size: 15px;
+    font-weight: 700;
+    text-align: right;
+    flex-shrink: 0;
+  }
+  .ro-section-title {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 1.5px;
+    margin-top: 4px;
+    padding-bottom: 2px;
+    border-bottom: 1px solid var(--grid-soft);
+  }
+  .ro-mini {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+    min-width: 0;
+  }
+  .ro-mini .mname {
+    color: var(--text-dim);
+    font-size: 12px;
+    flex-shrink: 0;
+  }
+  .ro-mini .mval {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text);
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  #ro-log {
+    display: none;
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    max-width: min(420px, calc(100% - 24px));
+    background: rgba(12, 22, 34, 0.92);
+    backdrop-filter: blur(6px);
+    border: 1px solid rgba(255,180,84,0.45);
+    border-radius: var(--radius);
+    padding: 10px 12px;
+    color: #ffd9a0;
+    font-size: 11.5px;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    overflow-wrap: break-word;
+    word-break: break-word;
+    box-sizing: border-box;
+    box-shadow: 0 0 28px -6px rgba(255,180,84,0.25), 0 8px 24px -8px rgba(0,0,0,0.5);
+    pointer-events: none;
+    z-index: 5;
+    max-height: calc(100% - 24px);
+    overflow-y: auto;
+  }
+  #ro-footer {
+    margin-top: auto;
+    color: var(--text-faint);
+    font-size: 9.5px;
+    padding-top: 8px;
+  }
+
+  /* ---------------- status bar ---------------- */
+  #statusbar {
+    flex-shrink: 0;
+    padding: 5px 16px;
+    background: var(--panel);
+    border-top: 1px solid var(--grid);
+    color: var(--text-dim);
+    font-size: 10.5px;
+  }
+
+  /* ---------------- modal / dialog ---------------- */
+  .modal-overlay {
+    position: fixed; inset: 0;
+    background: rgba(2,6,11,0.78);
+    backdrop-filter: blur(3px);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+  }
+  .modal-overlay.open { display: flex; }
+  .modal {
+    background: var(--panel);
+    border: 1px solid var(--grid);
+    border-radius: 8px;
+    padding: 20px 22px;
+    min-width: 320px;
+    max-width: 520px;
+    box-shadow: 0 0 0 1px rgba(127,212,255,0.06), 0 20px 60px -10px rgba(0,0,0,0.6), 0 0 40px -10px rgba(127,212,255,0.08);
+    max-height: 86vh;
+    overflow-y: auto;
+  }
+  .modal h3 {
+    margin: 0 0 6px;
+    font-size: 13px;
+    color: var(--text);
+    font-weight: 700;
+    letter-spacing: 0.5px;
+  }
+  .modal p.hint {
+    margin: 0 0 12px;
+    font-size: 10.5px;
+    color: var(--text-dim);
+    line-height: 1.5;
+  }
+  .modal-icon-row {
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+    margin-bottom: 14px;
+  }
+  .modal-icon {
+    flex-shrink: 0;
+    width: 28px; height: 28px;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 15px;
+    font-weight: 700;
+  }
+  .modal-icon.warn { background: rgba(255,180,84,0.12); color: var(--amber); border: 1px solid rgba(255,180,84,0.4); }
+  .modal-icon.error { background: rgba(255,107,107,0.12); color: var(--danger); border: 1px solid rgba(255,107,107,0.4); }
+  .modal-icon.question { background: rgba(127,212,255,0.12); color: var(--cyan); border: 1px solid rgba(127,212,255,0.4); }
+  .modal-body-text {
+    font-size: 12px;
+    color: var(--text);
+    line-height: 1.55;
+  }
+  .modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 16px;
+  }
+  .modal-actions button {
+    font-family: var(--mono);
+    font-size: 11px;
+    padding: 7px 16px;
+    border-radius: var(--radius);
+    border: 1px solid var(--grid);
+    background: #101724;
+    color: var(--text);
+    cursor: pointer;
+  }
+  .modal-actions button:hover { border-color: var(--cyan); color: var(--cyan); }
+  .modal-actions button.primary {
+    border-color: var(--cyan);
+    color: var(--cyan);
+    background: #0a2b30;
+  }
+
+  /* color picker dialog */
+  .swatch-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 0;
+    gap: 14px;
+  }
+  .swatch-row .lbl { font-size: 12px; color: var(--text); display: flex; align-items: center; gap: 8px; }
+  .swatch-row .lbl .dot { width: 10px; height: 10px; border-radius: 50%; }
+  .swatch-row input[type=color] {
+    width: 42px; height: 26px;
+    border: 1px solid var(--grid);
+    border-radius: 4px;
+    background: transparent;
+    cursor: pointer;
+  }
+
+  /* report params dialog */
+  .panel-check-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    color: var(--text);
+    padding: 3px 0;
+    cursor: pointer;
+    user-select: none;
+  }
+  .panel-check-row input { accent-color: var(--cyan); cursor: pointer; }
+  .beacon-grid-head {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+    margin-bottom: 2px;
+  }
+  .beacon-grid-head span {
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: 1px;
+  }
+  .beacon-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0 20px;
+  }
+  .quick-row { display: flex; gap: 8px; margin: 10px 0 4px; }
+  .quick-row button {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--text-dim);
+    background: #101724;
+    border: 1px solid var(--grid);
+    padding: 4px 10px;
+    border-radius: 4px;
+    cursor: pointer;
+  }
+  .quick-row button:hover { border-color: var(--cyan); color: var(--cyan); }
+
+  /* ---------------- altimeter overlays ---------------- */
+  .alt-overlay {
+    position: absolute;
+    top: 10px;
+    width: 168px;
+    min-width: 120px;
+    min-height: 100px;
+    background: rgba(12, 22, 34, 0.82);
+    backdrop-filter: blur(6px);
+    border: 1px solid rgba(127,212,255,0.18);
+    border-radius: var(--radius);
+    padding: 7px 9px 6px;
+    pointer-events: all;
+    z-index: 10;
+    box-shadow: 0 4px 18px -4px rgba(0,0,0,0.5);
+    cursor: grab;
+    user-select: none;
+    resize: both;
+    overflow: hidden;
+    box-sizing: border-box;
+  }
+  .alt-overlay:active { cursor: grabbing; }
+  .alt-overlay:hover { border-color: rgba(127,212,255,0.4); }
+  #alt-overlay-334 { right: 10px; }
+  #alt-overlay-333 { right: 188px; }
+  .alt-title {
+    font-size: 9px;
+    letter-spacing: 1.2px;
+    font-weight: 700;
+    color: var(--text-dim);
+    margin-bottom: 4px;
+  }
+  .alt-canvas { display: block; width: 100%; height: calc(100% - 42px); min-height: 40px; }
+  .alt-value {
+    font-size: 13px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    color: var(--text);
+    text-align: right;
+    margin-top: 3px;
+    letter-spacing: 0.5px;
+  }
+
+  /* ---------------- node fix popup (like ro-log) ---------------- */
+  #ro-fix {
+    display: none;
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    max-width: min(320px, calc(100% - 24px));
+    background: rgba(12, 22, 34, 0.92);
+    backdrop-filter: blur(6px);
+    border-radius: var(--radius);
+    padding: 10px 12px;
+    font-size: 11.5px;
+    line-height: 1.6;
+    white-space: pre-wrap;
+    overflow-wrap: break-word;
+    word-break: break-word;
+    box-sizing: border-box;
+    pointer-events: none;
+    z-index: 5;
+  }
+
+  /* ---------------- node count overlay ---------------- */
+  #node-count {
+    display: none;
+    position: absolute;
+    top: 10px;
+    left: 58px;
+    min-width: 160px;
+    min-height: 40px;
+    background: rgba(12, 22, 34, 0.82);
+    backdrop-filter: blur(4px);
+    border: 1px solid rgba(127,212,255,0.18);
+    border-radius: var(--radius);
+    padding: 7px 12px 6px;
+    letter-spacing: 0.8px;
+    color: var(--text-dim);
+    pointer-events: all;
+    z-index: 10;
+    box-shadow: 0 4px 18px -4px rgba(0,0,0,0.5);
+    cursor: grab;
+    user-select: none;
+    resize: both;
+    overflow: hidden;
+    box-sizing: border-box;
+    line-height: 1.5;
+    display: none;
+    align-items: center;
+    justify-content: center;
+  }
+  #node-count:active { cursor: grabbing; }
+  #node-count:hover { border-color: rgba(127,212,255,0.4); }
+  #node-count-inner {
+    width: 100%;
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+    font-weight: 700;
+  }
+  #node-count .nc-val {
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+  }
+  #node-count .nc-total {
+    color: var(--text);
+    font-weight: 700;
+  }
+  #toast {
+    position: fixed;
+    bottom: 44px; left: 50%;
+    transform: translateX(-50%) translateY(20px);
+    background: var(--panel);
+    border: 1px solid var(--cyan);
+    box-shadow: 0 0 24px -6px var(--cyan-glow);
+    color: var(--text);
+    font-size: 11.5px;
+    padding: 9px 18px;
+    border-radius: 20px;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.25s, transform 0.25s;
+    z-index: 2000;
+    white-space: nowrap;
+  }
+  #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+  /* ---------------- live connect bar ---------------- */
+  #live-bar {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  #ws-ip {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    background: #0e1924;
+    border: 1px solid var(--grid);
+    color: var(--text);
+    border-radius: var(--radius);
+    padding: 6px 10px;
+    width: 160px;
+    outline: none;
+  }
+  #ws-ip:focus { border-color: var(--cyan); }
+  #ws-port-input {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    background: #0e1924;
+    border: 1px solid var(--grid);
+    color: var(--text);
+    border-radius: var(--radius);
+    padding: 6px 8px;
+    width: 58px;
+    outline: none;
+  }
+  #ws-port-input:focus { border-color: var(--cyan); }
+  #live-dot {
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    background: #3d5168;
+    flex-shrink: 0;
+    transition: background 0.3s;
+  }
+  #live-dot.connecting { background: var(--amber); box-shadow: 0 0 6px var(--amber-glow); }
+  #live-dot.connected  { background: var(--green);  box-shadow: 0 0 6px var(--green-glow); }
+  #live-dot.error      { background: var(--red);    box-shadow: 0 0 6px var(--red-glow); }
+  #live-dot.reconnecting { background: var(--amber); box-shadow: 0 0 6px var(--amber-glow); animation: spin 1.2s linear infinite; }
+
+  /* ── AUTO UPDATE pulse ── */
+  @keyframes auto-update-pulse {
+    0%, 100% { box-shadow: 0 0 4px rgba(62,224,122,0.3); }
+    50%       { box-shadow: 0 0 16px rgba(62,224,122,0.9), 0 0 6px rgba(62,224,122,0.5); }
+  }
+  #btn-update-log.auto-active {
+    animation: auto-update-pulse 2.4s ease-in-out infinite;
+    color: var(--green) !important;
+  }
+
+  /* ---------------- archive select ---------------- */
+  #archive-select {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    background: #0e1924;
+    border: 1px solid var(--grid);
+    color: var(--text);
+    border-radius: var(--radius);
+    padding: 6px 10px;
+    cursor: pointer;
+    outline: none;
+  }
+  #archive-select:focus { border-color: var(--cyan); }
+  #archive-select option { background: #0e1924; }
+  #archive-select.now-active { border-color: var(--green); color: var(--green); box-shadow: 0 0 8px rgba(62,224,122,0.25); }
+  #archive-select option#opt-now { color: #3ee07a; font-weight: 700; }
+
+</style>
+</head>
+<body>
+<div id="app">
+
+  <!-- ===================== TOPBAR ===================== -->
+  <div id="topbar">
+
+    <!-- ROW 1: brand · SOG toggles · live connect · archive -->
+    <div id="topbar-row1">
+      <div class="brand">
+        <div class="brand-mark"></div>
+        <div class="brand-title">OBN SPEEDVIEW</div>
+      </div>
+
+      <div style="width:1px;height:22px;background:var(--grid);flex-shrink:0;margin:0 4px;"></div>
+
+      <!-- SOG toggle buttons -->
+      <div class="legend-item" data-series="ifr">
+        <div class="legend-dot" id="dot-ifr" style="background:var(--magenta); box-shadow:0 0 6px var(--magenta-glow);"></div>
+        IFR SOG
+      </div>
+      <div class="legend-item" data-series="334">
+        <div class="legend-dot" id="dot-334" style="background:var(--green); box-shadow:0 0 6px var(--green-glow);"></div>
+        UHD334
+      </div>
+      <div class="legend-item" data-series="333">
+        <div class="legend-dot" id="dot-333" style="background:var(--red); box-shadow:0 0 6px var(--red-glow);"></div>
+        UHD333
+      </div>
+
+      <div class="toolbar-spacer"></div>
+
+      <input type="file" id="file-speed" accept=".csv">
+      <input type="file" id="file-log" accept=".xlsm,.xlsx">
+
+      <!-- Live connect bar -->
+      <div id="live-bar">
+        <input id="ws-ip" type="text" placeholder="Bridge IP  e.g. 10.0.0.5" spellcheck="false">
+        <input id="ws-port-input" type="text" placeholder="Port" value="8765" spellcheck="false">
+        <button class="tbtn" id="btn-live-connect">CONNECT LIVE</button>
+        <div id="live-dot" title="Live status"></div>
+      </div>
+
+      <!-- Archive selector -->
+      <select id="archive-select" title="Load archive day">
+        <option value="__now__" id="opt-now">⬤ NOW</option>
+      </select>
+    </div>
+
+    <!-- ROW 2: action buttons -->
+    <div id="topbar-row2">
+      <button class="tbtn" id="btn-load-speed">LOAD CSV</button>
+      <div class="log-btn-group">
+        <button class="tbtn" id="btn-load-log">LOAD LOG</button>
+        <button class="tbtn success" id="btn-update-log" disabled title="Reload the same log file">↺ UPDATE</button>
+      </div>
+      <div style="width:1px;height:22px;background:var(--grid);flex-shrink:0;margin:0 2px;"></div>
+      <button class="tbtn" id="btn-select">SELECT REGIONS</button>
+      <button class="tbtn" id="btn-report">GENERATE REPORT</button>
+      <div style="width:1px;height:22px;background:var(--grid);flex-shrink:0;margin:0 2px;"></div>
+      <button class="tbtn" id="btn-lp-range">LP RANGE ALERT</button>
+      <button class="tbtn success" id="btn-lp-live" title="Live LP Range monitor">LP LIVE</button>
+      <button class="tbtn" id="btn-lp-decl">LP DECL ALERT</button>
+      <div style="width:1px;height:22px;background:var(--grid);flex-shrink:0;margin:0 2px;"></div>
+      <button class="tbtn" id="btn-node-fixes">NODE FIXES</button>
+      <div style="width:1px;height:22px;background:var(--grid);flex-shrink:0;margin:0 2px;"></div>
+      <button class="tbtn" id="btn-scroll" title="Lock view — pan and zoom freely without auto-recenter">SCROLL</button>
+      <div class="toolbar-spacer"></div>
+      <button class="tbtn" id="btn-colors">COLORS</button>
+      <button class="tbtn" id="btn-reset-zoom">RESET ZOOM</button>
+      <button class="tbtn danger" id="btn-clear">CLEAR DATA</button>
+    </div>
+
+  </div>
+
+  <!-- ===================== BODY ===================== -->
+  <div id="body">
+    <div id="left-col">
+
+      <!-- region bar -->
+      <div id="region-bar">
+        <div id="region-hint">Click "SELECT REGIONS", then drag on the chart to mark a window for the report.</div>
+        <div id="region-chips"></div>
+      </div>
+
+      <!-- chart -->
+      <div id="chart-wrap">
+        <canvas id="chart-canvas"></canvas>
+        <div id="chart-empty">
+          <div class="ring"></div>
+          <div>LOAD SPEED DATA CSV TO BEGIN</div>
+        </div>
+        <div id="ro-log"></div>
+        <div id="ro-fix"></div>
+        <div id="node-count"></div>
+        <div id="speedup-overlay" style="display:none;position:absolute;top:16px;left:50%;transform:translateX(-50%);z-index:50;pointer-events:none;flex-direction:column;gap:6px;align-items:center;">
+          <div id="speedup-text" style="font-family:var(--mono);font-size:clamp(22px,2.8vw,38px);font-weight:700;
+            color:#3ee07a;letter-spacing:5px;white-space:nowrap;
+            text-shadow:0 0 24px rgba(62,224,122,0.95),0 0 48px rgba(62,224,122,0.6),0 0 80px rgba(62,224,122,0.3);
+            animation:speedup-pulse 1.2s ease-in-out infinite;">▲ SPEED UP</div>
+          <div style="font-family:var(--mono);font-size:10px;color:rgba(62,224,122,0.65);letter-spacing:2px;white-space:nowrap;">
+            UHD333 &amp; UHD334 — LP RANGE BELOW THRESHOLD
+          </div>
+        </div>
+        <!-- Altimeter mini-overlays -->
+        <div class="alt-overlay" id="alt-overlay-334">
+          <div class="alt-title" id="alt-title-334">UHD334 ALT</div>
+          <canvas class="alt-canvas" id="alt-canvas-334"></canvas>
+          <div class="alt-value" id="alt-value-334">—</div>
+        </div>
+        <div class="alt-overlay" id="alt-overlay-333">
+          <div class="alt-title" id="alt-title-333">UHD333 ALT</div>
+          <canvas class="alt-canvas" id="alt-canvas-333"></canvas>
+          <div class="alt-value" id="alt-value-333">—</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- readout panel -->
+    <div id="readout">
+      <div class="ro-title">CURSOR READOUT</div>
+      <div id="ro-time">--:--:--</div>
+      <div id="ro-date"></div>
+      <hr class="ro-hline">
+
+      <div class="ro-row">
+        <div class="dot" id="ro-dot-ifr"></div>
+        <div class="name">IFR SOG</div>
+        <div class="val" id="ro-sog-ifr">—</div>
+      </div>
+      <div class="ro-row">
+        <div class="dot" id="ro-dot-334"></div>
+        <div class="name">UHD334 SOG</div>
+        <div class="val" id="ro-sog-334">—</div>
+      </div>
+      <div class="ro-row">
+        <div class="dot" id="ro-dot-333"></div>
+        <div class="name">UHD333 SOG</div>
+        <div class="val" id="ro-sog-333">—</div>
+      </div>
+
+      <hr class="ro-hline">
+      <div class="ro-section-title" id="ro-sec-ifr">IFR (VESSEL)</div>
+      <div class="ro-mini"><span class="mname">Easting (m)</span><span class="mval" id="ro-ifr-easting">—</span></div>
+      <div class="ro-mini"><span class="mname">Northing (m)</span><span class="mval" id="ro-ifr-northing">—</span></div>
+      <div class="ro-mini"><span class="mname">COG (°)</span><span class="mval" id="ro-ifr-cog">—</span></div>
+
+      <hr class="ro-hline">
+      <div class="ro-section-title" id="ro-sec-334">UHD334</div>
+      <div class="ro-mini"><span class="mname">Depth (m)</span><span class="mval" id="ro-334-depth">—</span></div>
+      <div class="ro-mini"><span class="mname">Altimeter (m)</span><span class="mval" id="ro-334-alt">—</span></div>
+      <div class="ro-mini"><span class="mname">COG (°)</span><span class="mval" id="ro-334-cog">—</span></div>
+      <div class="ro-mini"><span class="mname">Easting (m)</span><span class="mval" id="ro-334-easting">—</span></div>
+      <div class="ro-mini"><span class="mname">Northing (m)</span><span class="mval" id="ro-334-northing">—</span></div>
+      <div class="ro-mini"><span class="mname">LP Range (m)</span><span class="mval" id="ro-334-range">—</span></div>
+      <div class="ro-mini"><span class="mname">LP Vert. Dist. (m)</span><span class="mval" id="ro-334-vdist">—</span></div>
+      <div class="ro-mini"><span class="mname">LP Declination (°)</span><span class="mval" id="ro-334-decl">—</span></div>
+
+      <div class="ro-section-title" id="ro-sec-333">UHD333</div>
+      <div class="ro-mini"><span class="mname">Depth (m)</span><span class="mval" id="ro-333-depth">—</span></div>
+      <div class="ro-mini"><span class="mname">Altimeter (m)</span><span class="mval" id="ro-333-alt">—</span></div>
+      <div class="ro-mini"><span class="mname">COG (°)</span><span class="mval" id="ro-333-cog">—</span></div>
+      <div class="ro-mini"><span class="mname">Easting (m)</span><span class="mval" id="ro-333-easting">—</span></div>
+      <div class="ro-mini"><span class="mname">Northing (m)</span><span class="mval" id="ro-333-northing">—</span></div>
+      <div class="ro-mini"><span class="mname">LP Range (m)</span><span class="mval" id="ro-333-range">—</span></div>
+      <div class="ro-mini"><span class="mname">LP Vert. Dist. (m)</span><span class="mval" id="ro-333-vdist">—</span></div>
+      <div class="ro-mini"><span class="mname">LP Declination (°)</span><span class="mval" id="ro-333-decl">—</span></div>
+
+      <hr class="ro-hline">
+      <div id="ro-footer">OBN SpeedView v2.8 · all data local to this session</div>
+    </div>
+  </div>
+
+  <!-- ===================== STATUS BAR ===================== -->
+  <div id="statusbar" style="display:flex;align-items:center;gap:14px;">
+    <span id="statusbar-text">Load Speed Data CSV to begin</span>
+    <span style="flex:1;"></span>
+    <div id="sample-count"></div>
+  </div>
+</div>
+
+<!-- ===================== MODALS ===================== -->
+<div class="modal-overlay" id="modal-message">
+  <div class="modal">
+    <div class="modal-icon-row">
+      <div class="modal-icon" id="modal-message-icon">!</div>
+      <div style="flex:1;">
+        <h3 id="modal-message-title"></h3>
+        <div class="modal-body-text" id="modal-message-body"></div>
+      </div>
+    </div>
+    <div class="modal-actions" id="modal-message-actions">
+      <button class="primary" id="modal-message-ok">OK</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modal-colors">
+  <div class="modal">
+    <h3>Curve colors</h3>
+    <p class="hint">Pick new colors for the three SOG curves. Changes apply immediately.</p>
+    <div class="swatch-row">
+      <div class="lbl"><span class="dot" style="background:var(--magenta);"></span>IFR SOG</div>
+      <input type="color" id="color-ifr">
+    </div>
+    <div class="swatch-row">
+      <div class="lbl"><span class="dot" style="background:var(--green);"></span>UHD334 SOG</div>
+      <input type="color" id="color-334">
+    </div>
+    <div class="swatch-row">
+      <div class="lbl"><span class="dot" style="background:var(--red);"></span>UHD333 SOG</div>
+      <input type="color" id="color-333">
+    </div>
+    <div class="modal-actions">
+      <button id="colors-close">DONE</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modal-report">
+  <div class="modal" style="min-width:420px;">
+    <h3>Select which panels to include in the PDF</h3>
+    <p class="hint">Each region still gets its own page; this only controls which charts appear on it.</p>
+
+    <label class="panel-check-row"><input type="checkbox" data-key="ifr_sog" checked> IFR SOG (vessel speed)</label>
+    <label class="panel-check-row"><input type="checkbox" data-key="ifr_cog" checked> IFR COG (vessel course)</label>
+
+    <hr class="ro-hline" style="margin:10px 0;">
+
+    <div class="beacon-grid-head">
+      <span style="color:var(--red);">UHD333</span>
+      <span style="color:var(--green);">UHD334</span>
+    </div>
+    <div class="beacon-grid" id="beacon-check-grid"></div>
+
+    <div class="quick-row">
+      <button id="report-select-all">Select all</button>
+      <button id="report-select-none">Select none</button>
+    </div>
+
+    <div class="modal-actions">
+      <button id="report-cancel">Cancel</button>
+      <button class="primary" id="report-ok">Generate PDF</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modal-lp-range">
+  <div class="modal" style="min-width:360px;">
+    <h3>LP Range Alert</h3>
+    <p class="hint">Highlight time zones where LP Range exceeds the threshold.</p>
+
+    <div class="swatch-row" style="margin-bottom:10px;">
+      <div class="lbl" style="font-size:11px;color:var(--text-dim);">Threshold (m)</div>
+      <input type="number" id="lp-range-threshold" value="700" min="0" max="9999" step="10"
+        style="width:90px;background:#0e1924;border:1px solid var(--grid);color:var(--text);
+               font-family:var(--mono);font-size:12px;padding:5px 8px;border-radius:4px;text-align:right;">
+    </div>
+    <div class="swatch-row" style="margin-bottom:6px;">
+      <label class="panel-check-row" style="margin:0;flex:1;">
+        <input type="checkbox" id="lp-range-333" checked> UHD333 color
+      </label>
+      <input type="color" id="lp-range-color-333" value="#ff4d6a">
+    </div>
+    <div class="swatch-row" style="margin-bottom:4px;">
+      <label class="panel-check-row" style="margin:0;flex:1;">
+        <input type="checkbox" id="lp-range-334" checked> UHD334 color
+      </label>
+      <input type="color" id="lp-range-color-334" value="#7fd4ff">
+    </div>
+
+    <div class="modal-actions" style="margin-top:16px;">
+      <button id="lp-range-cancel">Cancel</button>
+      <button id="lp-range-clear" style="font-family:var(--mono);font-size:10.5px;letter-spacing:1px;
+        color:#ff9a9a;background:#1a0e0e;border:1px solid #5c2626;border-radius:var(--radius);
+        padding:7px 13px;cursor:pointer;">CLEAR</button>
+      <button class="primary" id="lp-range-ok">APPLY</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modal-lp-decl">
+  <div class="modal" style="min-width:360px;">
+    <h3>LP Declination Alert</h3>
+    <p class="hint">Highlight time zones where LP Declination exceeds the threshold.</p>
+
+    <div class="swatch-row" style="margin-bottom:10px;">
+      <div class="lbl" style="font-size:11px;color:var(--text-dim);">Threshold (°)</div>
+      <input type="number" id="lp-decl-threshold" value="5" min="0" max="90" step="0.5"
+        style="width:90px;background:#0e1924;border:1px solid var(--grid);color:var(--text);
+               font-family:var(--mono);font-size:12px;padding:5px 8px;border-radius:4px;text-align:right;">
+    </div>
+    <div class="swatch-row" style="margin-bottom:6px;">
+      <label class="panel-check-row" style="margin:0;flex:1;">
+        <input type="checkbox" id="lp-decl-333" checked> UHD333 color
+      </label>
+      <input type="color" id="lp-decl-color-333" value="#ffb454">
+    </div>
+    <div class="swatch-row" style="margin-bottom:4px;">
+      <label class="panel-check-row" style="margin:0;flex:1;">
+        <input type="checkbox" id="lp-decl-334" checked> UHD334 color
+      </label>
+      <input type="color" id="lp-decl-color-334" value="#3ee07a">
+    </div>
+
+    <div class="modal-actions" style="margin-top:16px;">
+      <button id="lp-decl-cancel">Cancel</button>
+      <button id="lp-decl-clear" style="font-family:var(--mono);font-size:10.5px;letter-spacing:1px;
+        color:#ff9a9a;background:#1a0e0e;border:1px solid #5c2626;border-radius:var(--radius);
+        padding:7px 13px;cursor:pointer;">CLEAR</button>
+      <button class="primary" id="lp-decl-ok">APPLY</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modal-lp-live">
+  <div class="modal" style="min-width:340px;">
+    <h3>LP LIVE Monitor</h3>
+    <p class="hint">In live mode, watches LP Range for UHD333 and UHD334. If either drops below threshold, that line pulses. If <b>both</b> drop below threshold simultaneously, a full-screen "Speed Up" alert fires.</p>
+    <div class="swatch-row" style="margin-bottom:12px;">
+      <div class="lbl" style="font-size:11px;color:var(--text-dim);">LP Range threshold (m) — both ROVs</div>
+      <input type="number" id="lp-live-threshold" value="800" min="0" max="9999" step="10"
+        style="width:90px;background:#0e1924;border:1px solid var(--grid);color:var(--text);
+               font-family:var(--mono);font-size:12px;padding:5px 8px;border-radius:4px;text-align:right;">
+    </div>
+    <div class="swatch-row" style="margin-bottom:14px;">
+      <div class="lbl" style="font-size:11px;color:var(--text-dim);">IFR Speed suppress threshold (kn)</div>
+      <input type="number" id="lp-live-ifr-threshold" value="0" min="0" max="99" step="0.1"
+        style="width:90px;background:#0e1924;border:1px solid var(--grid);color:var(--text);
+               font-family:var(--mono);font-size:12px;padding:5px 8px;border-radius:4px;text-align:right;">
+    </div>
+    <div style="font-size:10.5px;color:var(--text-dim);margin-bottom:14px;line-height:1.6;">
+      <span style="color:var(--green);">●</span> Monitor active when in LIVE mode only.<br>
+      <span style="color:var(--amber);">●</span> Single ROV below LP threshold → line pulses.<br>
+      <span style="color:var(--red);">●</span> Both ROVs below LP threshold → "Speed Up" overlay.<br>
+      <span style="color:var(--cyan);">●</span> IFR Speed ≥ suppress threshold → all LP alerts suppressed.
+    </div>
+    <div class="modal-actions">
+      <button id="lp-live-cancel">Cancel</button>
+      <button id="lp-live-disable" style="font-family:var(--mono);font-size:10.5px;letter-spacing:1px;
+        color:#ff9a9a;background:#1a0e0e;border:1px solid #5c2626;border-radius:var(--radius);
+        padding:7px 13px;cursor:pointer;">DISABLE</button>
+      <button class="primary" id="lp-live-ok">ENABLE</button>
+    </div>
+  </div>
+</div>
+
+<!-- Speed Up full-canvas overlay -->
+<style>
+@keyframes speedup-pulse {
+  0%,100% { opacity:1; text-shadow:0 0 40px rgba(62,224,122,0.9),0 0 80px rgba(62,224,122,0.5); }
+  50%      { opacity:0.55; text-shadow:0 0 20px rgba(62,224,122,0.4),0 0 40px rgba(62,224,122,0.2); }
+}
+@keyframes lp-line-pulse {
+  0%,100% { opacity:1; }
+  50%      { opacity:0.25; }
+}
+</style>
+
+<div id="toast"></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script>
+"use strict";
+
+/* ======================================================================
+   OBN SpeedView — core logic  (speedview_app.js)
+   ====================================================================== */
+
+const COLOR_LOG = "#ffb454";
+const state = {
+  colorIfr: localStorage.getItem("sv_color_ifr") || "#ff5fc1",
+  color334: localStorage.getItem("sv_color_334") || "#3ee07a",
+  color333: localStorage.getItem("sv_color_333") || "#ff4d6a",
+
+  df: null,
+  minuteTrack: null,
+  dayStartEpoch: null,
+  events: [],
+  nodeFixes: [],        // [{epoch, uhd, rl, st, id}]
+  showNodeFixes: false, // toggle — true = show fixes, hide log markers
+
+  visible: { ifr: true, u334: true, u333: true },
+
+  viewX0: null, viewX1: null,
+  yMax: 5,
+
+  selectMode: false,
+  regions: [],
+  nextRegionId: 1,
+  dragStart: null,
+  dragCurrent: null,
+  hoverEpoch: null,
+
+  // LP Alert — 4 independent channels: range333, range334, decl333, decl334
+  lpAlert: {
+    active: false,
+
+    rangeThreshold: 700,
+    range333: { enabled: true, color: "#ff4d6a", zones: [] },
+    range334: { enabled: true, color: "#7fd4ff", zones: [] },
+
+    declThreshold: 5,
+    decl333:  { enabled: true, color: "#ffb454", zones: [] },
+    decl334:  { enabled: true, color: "#3ee07a", zones: [] },
+  },
+
+  // LP Live monitor (live mode only)
+  lpLive: {
+    enabled: false,
+    threshold: 800,
+    ifrSpeedThreshold: 0,  // suppress all LP alerts when IFR SOG >= this value (0 = disabled)
+    alert333: false,
+    alert334: false,
+    pulsePhase: 0,
+  },
+};
+
+// ---------------------------------------------------------------------
+// Utilities
+// ---------------------------------------------------------------------
+function safeFloat(v) {
+  if (v === null || v === undefined) return null;
+  if (typeof v === "string") {
+    const s = v.trim();
+    if (s === "" || s === "--" || s === "N/A" || s === "nan" || s === "NaN") return null;
+    const f = parseFloat(s);
+    return Number.isFinite(f) ? f : null;
+  }
+  const f = parseFloat(v);
+  return Number.isFinite(f) ? f : null;
+}
+function fmt(v, digits = 3) {
+  return (v === null || v === undefined || Number.isNaN(v)) ? "—" : v.toFixed(digits);
+}
+function parseTsToEpoch(s) {
+  if (!s) return null;
+  let str = String(s).trim();
+  if (!str) return null;
+
+  // Format: M/D/YYYY HH:MM or M/D/YYYY HH:MM:SS  (node fix CSV as seen in Excel)
+  const mdyMatch = str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})\s+(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
+  if (mdyMatch) {
+    const [,mo,dy,yr,hh,mm,ss] = mdyMatch;
+    const iso = `${yr}-${mo.padStart(2,"0")}-${dy.padStart(2,"0")}T${hh.padStart(2,"0")}:${mm}:${(ss||"00").padStart(2,"0")}Z`;
+    const t = Date.parse(iso);
+    return Number.isNaN(t) ? null : t / 1000;
+  }
+
+  // Format: YYYY-MM-DD HH:MM:SS or YYYY-MM-DD HH:MM:SS.mmm  (bridge output)
+  const ymdMatch = str.match(/^(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2}:\d{2})/);
+  if (ymdMatch) {
+    const iso = `${ymdMatch[1]}T${ymdMatch[2]}Z`;
+    const t = Date.parse(iso);
+    return Number.isNaN(t) ? null : t / 1000;
+  }
+
+  // Standard ISO fallback
+  let iso = str.replace(" ", "T");
+  if (!/Z$|[+-]\d\d:\d\d$/.test(iso)) iso += "Z";
+  const t = Date.parse(iso);
+  return Number.isNaN(t) ? null : t / 1000;
+}
+function epochToDate(e) { return new Date(e * 1000); }
+function pad2(n) { return String(n).padStart(2, "0"); }
+function fmtHMS(e) { const d=epochToDate(e); return `${pad2(d.getUTCHours())}:${pad2(d.getUTCMinutes())}:${pad2(d.getUTCSeconds())}`; }
+function fmtHM(e)  { const d=epochToDate(e); return `${pad2(d.getUTCHours())}:${pad2(d.getUTCMinutes())}`; }
+function fmtDate(e){ const d=epochToDate(e); return `${d.getUTCFullYear()}-${pad2(d.getUTCMonth()+1)}-${pad2(d.getUTCDate())}`; }
+function dayStartOf(e) { return Math.floor(e / 86400) * 86400; }
+
+// ---------------------------------------------------------------------
+// CSV loading
+// ---------------------------------------------------------------------
+const NUMERIC_FIELDS = [
+  "IFR SOG (knot)","UHD333 SOG (knot)","UHD334 SOG (knot)",
+  "IFR COG","IFR Easting (Metre) (32615)","IFR Northing (Metre) (32615)",
+  "UHD334 Depth (m)","UHD334 Altimeter (m)","UHD334 COG",
+  "UHD334 Easting (Metre) (32615)","UHD334 Northing (Metre) (32615)",
+  "UHD333 Depth (m)","UHD333 Altimeter (m)","UHD333 COG",
+  "UHD333 Easting (Metre) (32615)","UHD333 Northing (Metre) (32615)",
+  "TMS333_LP Range (m)","TMS333_LP Vertical distance (m)","TMS333_LP Declination",
+  "TMS334_LP Range (m)","TMS334_LP Vertical distance (m)","TMS334_LP Declination",
+];
+
+function loadSpeedCsvText(csvText) {
+  const parsed = Papa.parse(csvText, { header:true, skipEmptyLines:true });
+  const fields = parsed.meta.fields || [];
+  const tsCol = fields.includes("TimeStamp (Utc)") ? "TimeStamp (Utc)" : fields[0];
+  const rows = [];
+  for (const raw of parsed.data) {
+    const epoch = parseTsToEpoch(raw[tsCol]);
+    if (epoch === null) continue;
+    const row = { epoch };
+    for (const f of NUMERIC_FIELDS) row[f] = f in raw ? safeFloat(raw[f]) : null;
+    rows.push(row);
+  }
+  rows.sort((a,b) => a.epoch - b.epoch);
+  if (!rows.length) throw new Error("No valid timestamped rows found in CSV.");
+  return rows;
+}
+
+// ---------------------------------------------------------------------
+// Minute-track aggregation
+// ---------------------------------------------------------------------
+const SOG_KEYS = { ifr:"IFR SOG (knot)", u334:"UHD334 SOG (knot)", u333:"UHD333 SOG (knot)" };
+
+function buildMinuteTrack(rows, dayStartEpoch) {
+  const dayEnd = dayStartEpoch + 86400;
+  const buckets = new Map();
+  for (const row of rows) {
+    if (row.epoch < dayStartEpoch || row.epoch >= dayEnd) continue;
+    const m = Math.floor(row.epoch / 60) * 60;
+    let b = buckets.get(m);
+    if (!b) { b={ifr:[0,0],u334:[0,0],u333:[0,0]}; buckets.set(m,b); }
+    for (const k of Object.keys(SOG_KEYS)) { const v=row[SOG_KEYS[k]]; if(v!==null){b[k][0]+=v;b[k][1]+=1;} }
+  }
+  const track = [];
+  for (let m=dayStartEpoch; m<dayEnd; m+=60) {
+    const b=buckets.get(m), pt={epoch:m};
+    for (const k of Object.keys(SOG_KEYS)) pt[k]=(b&&b[k][1]>0)?b[k][0]/b[k][1]:null;
+    track.push(pt);
+  }
+  return track;
+}
+
+// ---------------------------------------------------------------------
+// LP Alert zone computation — contiguous time windows where field > threshold
+// Gaps ≤ 60 s are merged so single missing samples don't fragment zones.
+// ---------------------------------------------------------------------
+function computeAlertZones(rows, field, threshold) {
+  const zones = [];
+  let zoneStart = null, lastEpoch = null;
+  const MERGE_GAP = 60;
+  for (const row of rows) {
+    const v = row[field];
+    const over = v !== null && Number.isFinite(v) && v > threshold;
+    if (over) {
+      if (zoneStart === null) zoneStart = row.epoch;
+      lastEpoch = row.epoch;
+    } else {
+      if (zoneStart !== null) {
+        if (lastEpoch !== null && row.epoch - lastEpoch <= MERGE_GAP) continue;
+        zones.push({ start: zoneStart, end: lastEpoch });
+        zoneStart = null; lastEpoch = null;
+      }
+    }
+  }
+  if (zoneStart !== null && lastEpoch !== null) zones.push({ start:zoneStart, end:lastEpoch });
+  return zones;
+}
+
+// Rebuilds all 4 alert zone arrays from current state.lpAlert settings
+function rebuildAlertZones() {
+  const la = state.lpAlert;
+  la.range333.zones = la.range333.enabled ? computeAlertZones(state.df, "TMS333_LP Range (m)", la.rangeThreshold) : [];
+  la.range334.zones = la.range334.enabled ? computeAlertZones(state.df, "TMS334_LP Range (m)", la.rangeThreshold) : [];
+  la.decl333.zones  = la.decl333.enabled  ? computeAlertZones(state.df, "TMS333_LP Declination", la.declThreshold) : [];
+  la.decl334.zones  = la.decl334.enabled  ? computeAlertZones(state.df, "TMS334_LP Declination", la.declThreshold) : [];
+  la.active = [la.range333,la.range334,la.decl333,la.decl334].some(ch => ch.zones.length > 0);
+}
+
+// ---------------------------------------------------------------------
+// Online Log loading
+// ---------------------------------------------------------------------
+function excelTimeToMsOfDay(v) {
+  if (v===null||v===undefined) return null;
+  if (v instanceof Date) return ((v.getHours()*3600)+(v.getMinutes()*60)+v.getSeconds())*1000;
+  if (typeof v==="number") return Math.round((v-Math.floor(v))*86400000);
+  if (typeof v==="string") {
+    const p=v.trim().split(":");
+    if (p.length>=2){const h=parseInt(p[0],10),m=parseInt(p[1],10),s=p.length>2?Math.floor(parseFloat(p[2])):0;if(Number.isFinite(h)&&Number.isFinite(m))return(h*3600+m*60+(Number.isFinite(s)?s:0))*1000;}
+  }
+  return null;
+}
+
+function loadLogWorkbook(arrayBuffer, baseDateEpoch) {
+  const wb = XLSX.read(arrayBuffer, { type:"array", cellDates:true });
+  const sheetName = wb.SheetNames.includes("log") ? "log" : wb.SheetNames[0];
+  const grid = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], {header:1,raw:true,defval:null});
+  let headerRow = null;
+  for (let r=0; r<Math.min(grid.length,40); r++) {
+    for (let c=0; c<Math.min((grid[r]||[]).length,15); c++) {
+      if (typeof grid[r][c]==="string"&&grid[r][c].trim().toUpperCase()==="REMARKS"){headerRow=r;break;}
+    }
+    if (headerRow!==null) break;
+  }
+  if (headerRow===null) headerRow=16;
+  const events=[]; let prevMs=null,dayOffset=0;
+  for (let r=headerRow+2; r<grid.length; r++) {
+    const row=grid[r]||[];
+    const utcStart=row[5]??null,code=row[4]??null,remark=row[7]??null;
+    if (utcStart===null) continue;
+    const ms=excelTimeToMsOfDay(utcStart); if(ms===null) continue;
+    if (prevMs!==null&&ms<prevMs-60000) dayOffset+=1;
+    prevMs=ms;
+    const text=remark!==null?String(remark).trim():""; if(!text) continue;
+    events.push({epoch:baseDateEpoch+dayOffset*86400+ms/1000,code:code!==null?String(code).trim():"",remark:text});
+  }
+  events.sort((a,b)=>a.epoch-b.epoch);
+  return events;
+}
+
+// ---------------------------------------------------------------------
+// Nearest-neighbor search
+// ---------------------------------------------------------------------
+function nearestIdxByEpoch(epochs, xEpoch) {
+  if (!epochs||!epochs.length) return null;
+  let lo=0,hi=epochs.length;
+  while(lo<hi){const mid=(lo+hi)>>1;if(epochs[mid]<xEpoch)lo=mid+1;else hi=mid;}
+  if(lo<=0)return 0;if(lo>=epochs.length)return epochs.length-1;
+  return(xEpoch-epochs[lo-1])<=(epochs[lo]-xEpoch)?lo-1:lo;
+}
+function nearestEvent(events,xEpoch,viewSpan) {
+  if (!events||!events.length) return null;
+  const epochs=events.map(e=>e.epoch);
+  let lo=0,hi=epochs.length;
+  while(lo<hi){const mid=(lo+hi)>>1;if(epochs[mid]<xEpoch)lo=mid+1;else hi=mid;}
+  const cands=[];if(lo>0)cands.push(lo-1);if(lo<epochs.length)cands.push(lo);
+  if(!cands.length)return null;
+  let best=cands[0];for(const c of cands)if(Math.abs(epochs[c]-xEpoch)<Math.abs(epochs[best]-xEpoch))best=c;
+  return Math.abs(epochs[best]-xEpoch)<=Math.max(Math.max(viewSpan,1)*0.01,2)?events[best]:null;
+}
+
+function computeAutoYMax(mt) {
+  let max=-Infinity;
+  for(const p of mt)for(const k of["ifr","u334","u333"]){const v=p[k];if(v!==null&&Number.isFinite(v)&&v>max)max=v;}
+  return Number.isFinite(max)?Math.max(1,max)*1.15:5;
+}
+
+function applySpeedData(rows) {
+  state.df=rows; state._dfEpochs=rows.map(r=>r.epoch);
+  state.dayStartEpoch=dayStartOf(rows[0].epoch);
+  state.minuteTrack=buildMinuteTrack(rows,state.dayStartEpoch);
+  state.yMax=computeAutoYMax(state.minuteTrack);
+  state.viewX0=state.dayStartEpoch; state.viewX1=state.dayStartEpoch+86400-1;
+  state.regions=[]; state.nextRegionId=1; state.events=[];
+  // reset alert zones, keep settings
+  const la=state.lpAlert;
+  la.active=false;
+  for(const ch of[la.range333,la.range334,la.decl333,la.decl334])ch.zones=[];
+  updateLpAlertButton();
+}
+
+/* ======================================================================
+   Canvas chart renderer
+   ====================================================================== */
+const canvas   = document.getElementById("chart-canvas");
+const ctx      = canvas.getContext("2d");
+const chartWrap  = document.getElementById("chart-wrap");
+const chartEmpty = document.getElementById("chart-empty");
+const MARGIN = { top:16, right:18, bottom:30, left:50 };
+let dpr=window.devicePixelRatio||1, cssW=0, cssH=0;
+
+function resizeCanvas() {
+  const rect=chartWrap.getBoundingClientRect();
+  cssW=Math.max(rect.width,50); cssH=Math.max(rect.height,50);
+  dpr=window.devicePixelRatio||1;
+  canvas.width=Math.round(cssW*dpr); canvas.height=Math.round(cssH*dpr);
+  canvas.style.width=cssW+"px"; canvas.style.height=cssH+"px";
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+}
+function plotArea(){return{x0:MARGIN.left,y0:MARGIN.top,x1:cssW-MARGIN.right,y1:cssH-MARGIN.bottom,w:cssW-MARGIN.left-MARGIN.right,h:cssH-MARGIN.top-MARGIN.bottom};}
+function xToPx(epoch,area){const span=state.viewX1-state.viewX0;return span<=0?area.x0:area.x0+((epoch-state.viewX0)/span)*area.w;}
+function pxToX(px,area){return state.viewX0+((px-area.x0)/area.w)*(state.viewX1-state.viewX0);}
+function yToPx(val,area){return area.y1-((val-0)/(state.yMax-0||1))*area.h;}
+function hexToRgb(hex){const h=hex.replace("#","");const n=parseInt(h.length===3?h.split("").map(c=>c+c).join(""):h,16);return{r:(n>>16)&255,g:(n>>8)&255,b:n&255};}
+function rgba(hex,a){const{r,g,b}=hexToRgb(hex);return`rgba(${r},${g},${b},${a})`;}
+
+function drawGrid(area) {
+  ctx.save();
+  ctx.strokeStyle="rgba(23,48,73,0.55)"; ctx.lineWidth=1;
+  const step=state.yMax>6?Math.ceil(state.yMax/6):(state.yMax>2?1:0.5);
+  ctx.fillStyle="#6f8aa3"; ctx.font="10px 'JetBrains Mono',monospace";
+  ctx.textAlign="right"; ctx.textBaseline="middle";
+  for(let v=0;v<=state.yMax;v+=step){const py=yToPx(v,area);ctx.beginPath();ctx.moveTo(area.x0,py);ctx.lineTo(area.x1,py);ctx.stroke();ctx.fillText(v.toFixed(step<1?1:0),area.x0-8,py);}
+  if(state.dayStartEpoch!==null){
+    ctx.textAlign="center"; ctx.textBaseline="top";
+    for(let h=0;h<24;h++){const ep=state.dayStartEpoch+h*3600;if(ep<state.viewX0-1||ep>state.viewX1+1)continue;const px=xToPx(ep,area);ctx.beginPath();ctx.moveTo(px,area.y0);ctx.lineTo(px,area.y1);ctx.stroke();ctx.fillText(pad2(h)+":00",px,area.y1+6);}
+  }
+  ctx.save();ctx.translate(14,area.y0+area.h/2);ctx.rotate(-Math.PI/2);ctx.fillStyle="#6f8aa3";ctx.font="9.5px 'JetBrains Mono',monospace";ctx.textAlign="center";ctx.textBaseline="middle";ctx.fillText("SPEED OVER GROUND (KNOTS)",0,0);ctx.restore();
+  ctx.restore();
+}
+
+// ── Catmull-Rom spline stroke helper ─────────────────────────────────
+// pts: array of [x, y]. Draws a smooth curve through all points.
+function catmullRomStroke(ctx, pts, tension = 0.5) {
+  if (pts.length < 2) return;
+  if (pts.length === 2) {
+    ctx.beginPath();
+    ctx.moveTo(pts[0][0], pts[0][1]);
+    ctx.lineTo(pts[1][0], pts[1][1]);
+    ctx.stroke();
+    return;
+  }
+  ctx.beginPath();
+  ctx.moveTo(pts[0][0], pts[0][1]);
+  for (let i = 0; i < pts.length - 1; i++) {
+    const p0 = pts[Math.max(i - 1, 0)];
+    const p1 = pts[i];
+    const p2 = pts[i + 1];
+    const p3 = pts[Math.min(i + 2, pts.length - 1)];
+    const cp1x = p1[0] + (p2[0] - p0[0]) * tension / 3;
+    const cp1y = p1[1] + (p2[1] - p0[1]) * tension / 3;
+    const cp2x = p2[0] - (p3[0] - p1[0]) * tension / 3;
+    const cp2y = p2[1] - (p3[1] - p1[1]) * tension / 3;
+    ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, p2[0], p2[1]);
+  }
+  ctx.stroke();
+}
+
+function catmullRomPath(ctx, pts, tension = 0.5) {
+  if (pts.length < 2) return;
+  ctx.moveTo(pts[0][0], pts[0][1]);
+  if (pts.length === 2) { ctx.lineTo(pts[1][0], pts[1][1]); return; }
+  for (let i = 0; i < pts.length - 1; i++) {
+    const p0 = pts[Math.max(i - 1, 0)];
+    const p1 = pts[i];
+    const p2 = pts[i + 1];
+    const p3 = pts[Math.min(i + 2, pts.length - 1)];
+    const cp1x = p1[0] + (p2[0] - p0[0]) * tension / 3;
+    const cp1y = p1[1] + (p2[1] - p0[1]) * tension / 3;
+    const cp2x = p2[0] - (p3[0] - p1[0]) * tension / 3;
+    const cp2y = p2[1] - (p3[1] - p1[1]) * tension / 3;
+    ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, p2[0], p2[1]);
+  }
+}
+
+function drawCurve(points,key,color,area){
+  const segs=[];let cur=[];
+  for(const p of points){const v=p[key];if(v===null||!Number.isFinite(v)){if(cur.length>1)segs.push(cur);cur=[];continue;}cur.push([xToPx(p.epoch,area),yToPx(v,area)]);}
+  if(cur.length>1)segs.push(cur);if(!segs.length)return;
+  ctx.save();ctx.lineJoin="round";ctx.lineCap="round";
+  // Glow pass
+  ctx.shadowColor=rgba(color,0.85);ctx.shadowBlur=9;ctx.strokeStyle=rgba(color,0.55);ctx.lineWidth=1.6;
+  for(const s of segs){catmullRomStroke(ctx,s);}
+  // Core line
+  ctx.shadowBlur=0;ctx.strokeStyle=color;ctx.lineWidth=1.0;
+  for(const s of segs){catmullRomStroke(ctx,s);}
+  ctx.restore();
+}
+
+function drawLogMarkers(area){
+  if(!state.events||!state.events.length)return;
+  if(state.showNodeFixes)return; // hidden when node fixes active
+  ctx.save();
+  for(const ev of state.events){if(ev.epoch<state.viewX0||ev.epoch>state.viewX1)continue;const px=xToPx(ev.epoch,area);ctx.beginPath();ctx.setLineDash([2,3]);ctx.strokeStyle=rgba(COLOR_LOG,0.5);ctx.lineWidth=1;ctx.moveTo(px,area.y0);ctx.lineTo(px,area.y1);ctx.stroke();}
+  ctx.setLineDash([]);ctx.restore();
+}
+
+function drawNodeFixMarkers(area){
+  if(!state.showNodeFixes||!state.nodeFixes.length)return;
+  ctx.save();
+  for(const fix of state.nodeFixes){
+    if(fix.epoch<state.viewX0||fix.epoch>state.viewX1)continue;
+    const px=xToPx(fix.epoch,area);
+    const color=fix.uhd==="UHD333"?state.color333:state.color334;
+    ctx.beginPath();ctx.setLineDash([2,3]);
+    ctx.strokeStyle=rgba(color,0.6);ctx.lineWidth=1.2;
+    ctx.moveTo(px,area.y0);ctx.lineTo(px,area.y1);ctx.stroke();
+  }
+  ctx.setLineDash([]);ctx.restore();
+}
+
+function updateNodeCount(){
+  const el=document.getElementById("node-count");
+  if(!state.showNodeFixes){el.style.display="none";return;}
+  const fixes=state.nodeFixes;
+  const n333=fixes.filter(f=>f.uhd==="UHD333").length;
+  const n334=fixes.filter(f=>f.uhd==="UHD334").length;
+  el.style.display="flex";
+  // Rebuild inner content
+  let inner = document.getElementById("node-count-inner");
+  if (!inner) {
+    inner = document.createElement("div");
+    inner.id = "node-count-inner";
+    el.appendChild(inner);
+    // ResizeObserver — scale font proportionally to box width
+    new ResizeObserver(() => {
+      const w = el.offsetWidth;
+      const h = el.offsetHeight;
+      const size = Math.max(9, Math.min(w * 0.09, h * 0.28));
+      inner.style.fontSize = size + "px";
+    }).observe(el);
+  }
+  inner.innerHTML =
+    `<span style="color:${state.color333}" class="nc-val">UHD333 </span>` +
+    `<span class="nc-val" style="color:${state.color333}">${n333}</span>` +
+    `<br>` +
+    `<span style="color:${state.color334}" class="nc-val">UHD334 </span>` +
+    `<span class="nc-val" style="color:${state.color334}">${n334}</span>` +
+    `<br>` +
+    `<span class="nc-total">TOTAL ${n333+n334}</span>`;
+  // Trigger resize to set initial font size
+  const w = el.offsetWidth;
+  const h = el.offsetHeight;
+  const size = Math.max(9, Math.min(w * 0.09, h * 0.28));
+  inner.style.fontSize = size + "px";
+}
+
+function drawSavedRegions(area){
+  ctx.save();
+  for(const r of state.regions){const x0=xToPx(Math.max(r.start,state.viewX0),area),x1=xToPx(Math.min(r.end,state.viewX1),area);if(x1<area.x0||x0>area.x1)continue;ctx.fillStyle="rgba(255,180,84,0.10)";ctx.fillRect(x0,area.y0,x1-x0,area.h);ctx.strokeStyle="rgba(255,180,84,0.55)";ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(x0,area.y0);ctx.lineTo(x0,area.y1);ctx.moveTo(x1,area.y0);ctx.lineTo(x1,area.y1);ctx.stroke();}
+  ctx.restore();
+}
+
+// Draw one alert channel's zones with its own color and opacity
+function drawAlertChannel(channel, opacity, area) {
+  if (!channel.enabled || !channel.zones.length) return;
+  ctx.fillStyle = rgba(channel.color, opacity);
+  for (const z of channel.zones) {
+    const x0=xToPx(Math.max(z.start,state.viewX0),area);
+    const x1=xToPx(Math.min(z.end,state.viewX1),area);
+    if (x1<area.x0||x0>area.x1||x1<=x0) continue;
+    ctx.fillRect(x0,area.y0,x1-x0,area.h);
+  }
+  ctx.strokeStyle=rgba(channel.color,Math.min(opacity+0.2,1));
+  ctx.lineWidth=1;
+  for (const z of channel.zones) {
+    const x0=xToPx(Math.max(z.start,state.viewX0),area);
+    const x1=xToPx(Math.min(z.end,state.viewX1),area);
+    if (x1<area.x0||x0>area.x1) continue;
+    ctx.beginPath();ctx.moveTo(x0,area.y0);ctx.lineTo(x0,area.y1);ctx.moveTo(x1,area.y0);ctx.lineTo(x1,area.y1);ctx.stroke();
+  }
+}
+
+function drawLpAlertZones(area) {
+  if (!state.lpAlert.active) return;
+  const la=state.lpAlert;
+  ctx.save();
+  // LP Range zones — opacity 0.28
+  drawAlertChannel(la.range333, 0.28, area);
+  drawAlertChannel(la.range334, 0.28, area);
+  // LP Declination zones — opacity 0.22 (slightly lower so they read as secondary)
+  drawAlertChannel(la.decl333, 0.22, area);
+  drawAlertChannel(la.decl334, 0.22, area);
+  ctx.restore();
+}
+
+function drawDragRegion(area){
+  if(state.dragStart===null||state.dragCurrent===null)return;
+  const x0e=Math.min(state.dragStart,state.dragCurrent),x1e=Math.max(state.dragStart,state.dragCurrent);
+  const x0=xToPx(x0e,area),x1=xToPx(x1e,area);
+  ctx.save();ctx.fillStyle="rgba(127,212,255,0.14)";ctx.fillRect(x0,area.y0,x1-x0,area.h);ctx.strokeStyle="#7fd4ff";ctx.lineWidth=1;ctx.shadowColor="rgba(127,212,255,0.7)";ctx.shadowBlur=6;ctx.beginPath();ctx.moveTo(x0,area.y0);ctx.lineTo(x0,area.y1);ctx.moveTo(x1,area.y0);ctx.lineTo(x1,area.y1);ctx.stroke();ctx.restore();
+}
+
+function drawHoverCrosshair(area){
+  if(state.hoverEpoch===null||state.hoverEpoch<state.viewX0||state.hoverEpoch>state.viewX1)return;
+  const px=xToPx(state.hoverEpoch,area);
+  ctx.save();ctx.strokeStyle="rgba(216,230,242,0.5)";ctx.setLineDash([4,4]);ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(px,area.y0);ctx.lineTo(px,area.y1);ctx.stroke();ctx.setLineDash([]);ctx.restore();
+  if(state.minuteTrack){
+    const idx=nearestIdxByEpoch(state.minuteTrack.map(p=>p.epoch),state.hoverEpoch);
+    if(idx!==null){const row=state.minuteTrack[idx];const px2=xToPx(row.epoch,area);for(const[key,color,vis]of[["ifr",state.colorIfr,state.visible.ifr],["u334",state.color334,state.visible.u334],["u333",state.color333,state.visible.u333]]){const v=row[key];if(!vis||v===null||!Number.isFinite(v))continue;const py=yToPx(v,area);ctx.save();ctx.shadowColor=rgba(color,0.9);ctx.shadowBlur=10;ctx.fillStyle="#050a12";ctx.strokeStyle=color;ctx.lineWidth=2;ctx.beginPath();ctx.arc(px2,py,4.5,0,Math.PI*2);ctx.fill();ctx.stroke();ctx.restore();}}
+  }
+}
+
+function render(){
+  if(!cssW||!cssH)resizeCanvas();
+  ctx.clearRect(0,0,cssW,cssH);
+  if(!state.minuteTrack){chartEmpty.classList.remove("hidden");return;}
+  chartEmpty.classList.add("hidden");
+  const area=plotArea();
+  ctx.save();ctx.beginPath();ctx.rect(area.x0,area.y0,area.w,area.h);ctx.clip();
+  drawSavedRegions(area);
+  drawLpAlertZones(area);
+  drawLogMarkers(area);
+  drawNodeFixMarkers(area);
+  if(state.visible.u334)drawCurve(state.minuteTrack,"u334",state.color334,area);
+  if(state.visible.u333)drawCurve(state.minuteTrack,"u333",state.color333,area);
+  if(state.visible.ifr) drawCurve(state.minuteTrack,"ifr",state.colorIfr,area);
+  drawDragRegion(area);drawHoverCrosshair(area);
+  ctx.restore();drawGrid(area);
+}
+
+window.addEventListener("resize",()=>{resizeCanvas();render();});
+
+/* ======================================================================
+   Mouse interaction
+   ====================================================================== */
+let isPanning=false,panStartPx=null,panStartViewX0=null,panStartViewX1=null;
+let _userPanned=false; // when true, suppress live auto-scroll
+let _lastInteractionTime=0; // timestamp of last user pan/zoom
+const RECENTER_DELAY = 3 * 60 * 1000; // 3 minutes in ms
+
+// Auto-recenter: fires every 10s, recenter if idle > 3min
+setInterval(() => {
+  if (!liveMode || !_userPanned || !state.df || !state.df.length) return;
+  if (_scrollLocked) return; // scroll lock active — never recenter
+  if (Date.now() - _lastInteractionTime < RECENTER_DELAY) return;
+  // Recenter: keep current zoom span, place latest data at ~75% from left
+  // so there's room on right for incoming data — matches "фото 2" look
+  const latestEpoch = state.df[state.df.length - 1].epoch;
+  const span = state.viewX1 - state.viewX0;
+  state.viewX0 = latestEpoch - span * 0.75;
+  state.viewX1 = latestEpoch + span * 0.25;
+  _userPanned = false; // resume autoscroll from this position
+  render();
+  setStatus(`LIVE  ·  ${fmtHMS(latestEpoch)}  ·  ${state.df.length.toLocaleString()} samples today`);
+}, 10000);
+
+function _markInteraction() {
+  _lastInteractionTime = Date.now();
+}
+function clientXToEpoch(cx){return pxToX(cx-canvas.getBoundingClientRect().left,plotArea());}
+
+canvas.addEventListener("mousedown",(e)=>{
+  if(!state.minuteTrack)return;
+  if(state.selectMode){state.dragStart=clientXToEpoch(e.clientX);state.dragCurrent=state.dragStart;}
+  else{isPanning=true;panStartPx=e.clientX;panStartViewX0=state.viewX0;panStartViewX1=state.viewX1;}
+});
+
+window.addEventListener("mousemove",(e)=>{
+  if(!state.minuteTrack)return;
+  const rect=canvas.getBoundingClientRect();
+  const inside=e.clientX>=rect.left&&e.clientX<=rect.right&&e.clientY>=rect.top&&e.clientY<=rect.bottom;
+  if(state.dragStart!==null){state.dragCurrent=clientXToEpoch(e.clientX);render();return;}
+  if(isPanning){
+    const area=plotArea(),span=panStartViewX1-panStartViewX0;
+    const dxE=((e.clientX-panStartPx)/area.w)*span;
+    let nx0=panStartViewX0-dxE,nx1=panStartViewX1-dxE;
+    if(state.dayStartEpoch!==null){const lo=state.dayStartEpoch-60,hi=state.dayStartEpoch+86460;if(nx0<lo){nx1+=(lo-nx0);nx0=lo;}if(nx1>hi){nx0-=(nx1-hi);nx1=hi;}}
+    state.viewX0=nx0;state.viewX1=nx1;render();return;
+  }
+  if(inside&&!state.selectMode){state.hoverEpoch=clientXToEpoch(e.clientX);updateReadout(state.hoverEpoch);render();}
+  else if(!inside&&state.hoverEpoch!==null){state.hoverEpoch=null;clearReadout();render();}
+});
+
+window.addEventListener("mouseup",()=>{
+  if(state.dragStart!==null){
+    const x0=Math.min(state.dragStart,state.dragCurrent),x1=Math.max(state.dragStart,state.dragCurrent);
+    state.dragStart=null;state.dragCurrent=null;
+    if(x1-x0>=2)createRegion(x0,x1);render();
+  }
+  if(isPanning){ _userPanned=true; _markInteraction(); }
+  isPanning=false;
+});
+
+canvas.addEventListener("wheel",(e)=>{
+  if(!state.minuteTrack)return;e.preventDefault();
+  const area=plotArea(),anchor=pxToX(e.clientX-canvas.getBoundingClientRect().left,area);
+  const zf=e.deltaY>0?1.15:1/1.15;
+  let span=Math.max(30,Math.min(86520,(state.viewX1-state.viewX0)*zf));
+  const ratio=(anchor-state.viewX0)/(state.viewX1-state.viewX0||1);
+  let nx0=anchor-ratio*span,nx1=nx0+span;
+  if(state.dayStartEpoch!==null){const lo=state.dayStartEpoch-60,hi=state.dayStartEpoch+86460;if(nx0<lo){nx1+=(lo-nx0);nx0=lo;}if(nx1>hi){nx0-=(nx1-hi);nx1=hi;}}
+  _userPanned=true; _markInteraction();
+  state.viewX0=nx0;state.viewX1=nx1;render();
+},{passive:false});
+
+/* ======================================================================
+   Readout panel
+   ====================================================================== */
+const roEls={time:document.getElementById("ro-time"),date:document.getElementById("ro-date"),sogIfr:document.getElementById("ro-sog-ifr"),sog334:document.getElementById("ro-sog-334"),sog333:document.getElementById("ro-sog-333"),ifrEasting:document.getElementById("ro-ifr-easting"),ifrNorthing:document.getElementById("ro-ifr-northing"),ifrCog:document.getElementById("ro-ifr-cog"),log:document.getElementById("ro-log")};
+const bfIds={334:{depth:"ro-334-depth",alt:"ro-334-alt",cog:"ro-334-cog",easting:"ro-334-easting",northing:"ro-334-northing",range:"ro-334-range",vdist:"ro-334-vdist",decl:"ro-334-decl"},333:{depth:"ro-333-depth",alt:"ro-333-alt",cog:"ro-333-cog",easting:"ro-333-easting",northing:"ro-333-northing",range:"ro-333-range",vdist:"ro-333-vdist",decl:"ro-333-decl"}};
+
+function updateReadout(hoverEpoch){
+  if(!state.df||!state.df.length)return;
+  const idx=nearestIdxByEpoch(state._dfEpochs,hoverEpoch);if(idx===null)return;
+  const row=state.df[idx];
+  roEls.time.textContent=fmtHMS(row.epoch);roEls.date.textContent=fmtDate(row.epoch);
+  roEls.sogIfr.textContent=fmt(row["IFR SOG (knot)"]);roEls.sog334.textContent=fmt(row["UHD334 SOG (knot)"]);roEls.sog333.textContent=fmt(row["UHD333 SOG (knot)"]);
+  roEls.ifrEasting.textContent=fmt(row["IFR Easting (Metre) (32615)"],1);roEls.ifrNorthing.textContent=fmt(row["IFR Northing (Metre) (32615)"],1);roEls.ifrCog.textContent=fmt(row["IFR COG"],1);
+  const s=id=>document.getElementById(id);
+  const set=(id,v)=>{const el=s(id);if(el)el.textContent=v;};
+  set(bfIds[334].depth,fmt(row["UHD334 Depth (m)"],2));set(bfIds[334].alt,fmt(row["UHD334 Altimeter (m)"],2));set(bfIds[334].cog,fmt(row["UHD334 COG"],1));set(bfIds[334].easting,fmt(row["UHD334 Easting (Metre) (32615)"],1));set(bfIds[334].northing,fmt(row["UHD334 Northing (Metre) (32615)"],1));set(bfIds[334].range,fmt(row["TMS334_LP Range (m)"],1));set(bfIds[334].vdist,fmt(row["TMS334_LP Vertical distance (m)"],1));set(bfIds[334].decl,fmt(row["TMS334_LP Declination"],1));
+  set(bfIds[333].depth,fmt(row["UHD333 Depth (m)"],2));set(bfIds[333].alt,fmt(row["UHD333 Altimeter (m)"],2));set(bfIds[333].cog,fmt(row["UHD333 COG"],1));set(bfIds[333].easting,fmt(row["UHD333 Easting (Metre) (32615)"],1));set(bfIds[333].northing,fmt(row["UHD333 Northing (Metre) (32615)"],1));set(bfIds[333].range,fmt(row["TMS333_LP Range (m)"],1));set(bfIds[333].vdist,fmt(row["TMS333_LP Vertical distance (m)"],1));set(bfIds[333].decl,fmt(row["TMS333_LP Declination"],1));
+  const ev=nearestEvent(state.events,hoverEpoch,state.viewX1-state.viewX0);
+  const roFix=document.getElementById("ro-fix");
+  if(state.showNodeFixes){
+    // Show node fix popup, hide log popup
+    roEls.log.style.display="none";
+    const fixes=state.nodeFixes;
+    if(fixes.length){
+      // find nearest fix to cursor
+      let best=null,bestDist=Infinity;
+      const viewSpan=state.viewX1-state.viewX0;
+      const snapDist=Math.max(viewSpan*0.01,2);
+      for(const f of fixes){const d=Math.abs(f.epoch-hoverEpoch);if(d<bestDist){bestDist=d;best=f;}}
+      if(best&&bestDist<=snapDist){
+        const color=best.uhd==="UHD333"?state.color333:state.color334;
+        roFix.style.display="block";
+        roFix.style.border=`1px solid ${color}77`;
+        roFix.style.boxShadow=`0 0 20px -6px ${color}44`;
+        roFix.style.color=color;
+        roFix.textContent=`${best.uhd}  @  ${fmtHMS(best.epoch)}\n${best.rl}  ·  ${best.st}  ·  ${best.id}`;
+      } else {
+        roFix.style.display="none";
+      }
+    } else {
+      roFix.style.display="none";
+    }
+  } else {
+    roFix.style.display="none";
+    if(ev){roEls.log.textContent=`LOG @ ${fmtHMS(ev.epoch)}${ev.code?`  [${ev.code}]`:""}\n\n${ev.remark}`;roEls.log.style.display="block";}
+    else roEls.log.style.display="none";
+  }
+}
+function setText(id,text){const el=document.getElementById(id);if(el)el.textContent=text;}
+function clearReadout(){roEls.time.textContent="--:--:--";roEls.date.textContent="";roEls.sogIfr.textContent="—";roEls.sog334.textContent="—";roEls.sog333.textContent="—";roEls.log.style.display="none";document.getElementById("ro-fix").style.display="none";}
+
+/* ======================================================================
+   Region management
+   ====================================================================== */
+const regionChipsEl=document.getElementById("region-chips");
+const regionHintEl=document.getElementById("region-hint");
+function createRegion(x0,x1){const id=state.nextRegionId++;state.regions.push({id,start:x0,end:x1});renderRegionChips();refreshRegionHint();}
+function removeRegion(id){state.regions=state.regions.filter(r=>r.id!==id);renderRegionChips();refreshRegionHint();render();}
+function renderRegionChips(){
+  regionChipsEl.innerHTML="";
+  state.regions.forEach((r,i)=>{
+    const chip=document.createElement("div");chip.className="chip";chip.innerHTML=`<span>#${i+1}  ${fmtHMS(r.start)}\u2013${fmtHMS(r.end)}</span>`;
+    const btn=document.createElement("button");btn.textContent="\u2715";btn.addEventListener("click",()=>removeRegion(r.id));
+    chip.appendChild(btn);regionChipsEl.appendChild(chip);
+  });
+}
+function refreshRegionHint(){
+  if(state.selectMode)return;
+  regionHintEl.textContent=state.regions.length>0?`${state.regions.length} region(s) marked. Click "GENERATE REPORT" to build the PDF.`:'Click "SELECT REGIONS", then drag on the chart to mark a window for the report.';
+  regionHintEl.classList.remove("active");
+}
+
+/* ======================================================================
+   UI wiring
+   ====================================================================== */
+const sampleCountEl=document.getElementById("sample-count");
+const statusbarEl=document.getElementById("statusbar-text");
+function setStatus(msg){statusbarEl.textContent=msg;}
+function showToast(msg,ms=2400){const t=document.getElementById("toast");t.textContent=msg;t.classList.add("show");clearTimeout(showToast._tid);showToast._tid=setTimeout(()=>t.classList.remove("show"),ms);}
+
+document.querySelectorAll(".legend-item").forEach(el=>{
+  el.addEventListener("click",()=>{const s=el.getAttribute("data-series"),k=s==="ifr"?"ifr":s==="334"?"u334":"u333";state.visible[k]=!state.visible[k];el.classList.toggle("off",!state.visible[k]);render();});
+});
+
+const fileSpeedInput=document.getElementById("file-speed");
+document.getElementById("btn-load-speed").addEventListener("click",()=>fileSpeedInput.click());
+fileSpeedInput.addEventListener("change",()=>{
+  const file=fileSpeedInput.files[0];fileSpeedInput.value="";if(!file)return;
+  const reader=new FileReader();
+  reader.onload=()=>{try{const rows=loadSpeedCsvText(reader.result);applySpeedData(rows);renderRegionChips();refreshRegionHint();updateSampleCount();resizeCanvas();render();setStatus(`Loaded ${rows.length.toLocaleString()} samples from ${file.name} \u2014 ${fmtDate(state.dayStartEpoch)}`);}catch(err){showMessageModal("error","Error",`Could not read speed CSV:\n${err.message}`);}};
+  reader.onerror=()=>showMessageModal("error","Error","Could not read the selected file.");
+  reader.readAsText(file);
+});
+
+const fileLogInput=document.getElementById("file-log");
+const btnUpdateLog=document.getElementById("btn-update-log");
+
+function requestLogViaWs(){
+  if(!state.df){showMessageModal("warn","Load Speed Data first","Load the Speed Data CSV before loading the log.");return;}
+  if(!ws||ws.readyState!==WebSocket.OPEN){showMessageModal("warn","Not connected","Connect to bridge first to load log automatically.\n\nOr use LOAD LOG (file picker) when offline.");return;}
+  const baseDate=fmtDate(state.dayStartEpoch);
+  setStatus("Requesting log from bridge…");
+  ws.send(JSON.stringify({type:"get_log",base_date:baseDate}));
+}
+
+document.getElementById("btn-load-log").addEventListener("click",()=>{
+  if(!state.df){showMessageModal("warn","Load Speed Data first","Load the Speed Data CSV before loading the log.");return;}
+  fileLogInput.click();
+});
+
+fileLogInput.addEventListener("change",()=>{
+  const file=fileLogInput.files[0];fileLogInput.value="";if(!file)return;
+  btnUpdateLog.disabled=false;
+  const reader=new FileReader();
+  reader.onload=()=>{
+    try{
+      state.events=loadLogWorkbook(reader.result,state.dayStartEpoch);
+      updateSampleCount(state.events.length);
+      render();
+      setStatus(`Log: ${state.events.length} events from ${file.name} — ${new Date().toLocaleTimeString()}`);
+    }catch(err){showMessageModal("error","Error",`Could not read log file:\n${err.message}`);}
+  };
+  reader.onerror=()=>{
+    btnUpdateLog.disabled=true;
+    showToast("Log file changed on disk — please re-select with LOAD LOG");
+    setStatus("Log file stale — click LOAD LOG to re-select");
+  };
+  reader.readAsArrayBuffer(file);
+});
+
+btnUpdateLog.addEventListener("click",()=>{
+  if(ws&&ws.readyState===WebSocket.OPEN){
+    requestLogViaWs();
+  } else {
+    showToast("Not connected to bridge — use LOAD LOG to pick file manually");
+  }
+});
+
+function updateSampleCount(n){const c=n!==undefined?n:state.events.length;sampleCountEl.innerHTML=c>0?`<span class="dot"></span>${c} log events loaded`:"";}
+
+const btnSelect=document.getElementById("btn-select");
+btnSelect.addEventListener("click",()=>{
+  state.selectMode=!state.selectMode;btnSelect.classList.toggle("active",state.selectMode);chartWrap.classList.toggle("select-mode",state.selectMode);
+  if(state.selectMode){regionHintEl.textContent='Selection mode ON \u2014 drag left-to-right on the chart to mark a window.';regionHintEl.classList.add("active");}
+  else{regionHintEl.classList.remove("active");refreshRegionHint();}
+});
+
+document.getElementById("btn-reset-zoom").addEventListener("click",()=>{if(state.dayStartEpoch===null)return;state.viewX0=state.dayStartEpoch;state.viewX1=state.dayStartEpoch+86400-1;_userPanned=false;render();});
+
+// ── SCROLL lock button ─────────────────────────────────────────────────
+let _scrollLocked = false; // when true: user can pan/zoom freely, no auto-recenter ever
+const btnScroll = document.getElementById("btn-scroll");
+btnScroll.addEventListener("click", () => {
+  _scrollLocked = !_scrollLocked;
+  btnScroll.classList.toggle("active", _scrollLocked);
+  btnScroll.style.color = _scrollLocked ? "var(--cyan)" : "";
+  if (_scrollLocked) {
+    _userPanned = true; // freeze autoscroll immediately
+    showToast("Scroll locked — free pan & zoom");
+  } else {
+    _userPanned = false; // re-enable autoscroll
+    showToast("Scroll unlocked — auto-follow resumed");
+  }
+});
+const btnNodeFixes = document.getElementById("btn-node-fixes");
+btnNodeFixes.addEventListener("click", () => {
+  state.showNodeFixes = !state.showNodeFixes;
+  btnNodeFixes.classList.toggle("active", state.showNodeFixes);
+  if(!state.showNodeFixes){
+    document.getElementById("ro-fix").style.display="none";
+    document.getElementById("node-count").style.display="none";
+  }
+  updateNodeCount();
+  render();
+  showToast(state.showNodeFixes ? "Node Fixes ON" : "Node Fixes OFF");
+});
+
+document.getElementById("btn-clear").addEventListener("click",()=>{
+  if(!state.df&&!state.events.length&&!state.regions.length)return;
+  showQuestionModal("Clear data","This removes the currently loaded Speed Data, Online Log, and any marked regions. Continue?",()=>{
+    state.df=null;state._dfEpochs=null;state.minuteTrack=null;state.dayStartEpoch=null;state.events=[];state.nodeFixes=[];state.regions=[];state.nextRegionId=1;state.viewX0=null;state.viewX1=null;state.hoverEpoch=null;
+    const la=state.lpAlert;la.active=false;for(const ch of[la.range333,la.range334,la.decl333,la.decl334])ch.zones=[];
+    updateLpAlertButton();if(state.selectMode)btnSelect.click();renderRegionChips();
+    regionHintEl.textContent='Click "SELECT REGIONS", then drag on the chart to mark a window for the report.';
+    updateSampleCount(0);clearReadout();render();setStatus("Data cleared. Load Speed Data CSV to begin");
+  });
+});
+
+/* ======================================================================
+   LP Range Alert modal wiring
+   ====================================================================== */
+const modalLpRange     = document.getElementById("modal-lp-range");
+const btnLpRange       = document.getElementById("btn-lp-range");
+const lpRangeThreshold = document.getElementById("lp-range-threshold");
+const lpRangeColor333  = document.getElementById("lp-range-color-333");
+const lpRangeColor334  = document.getElementById("lp-range-color-334");
+const lpRangeCheck333  = document.getElementById("lp-range-333");
+const lpRangeCheck334  = document.getElementById("lp-range-334");
+
+function updateLpRangeButton(){btnLpRange.classList.toggle("active", state.lpAlert.range333.zones.length>0||state.lpAlert.range334.zones.length>0);}
+function updateLpDeclButton(){btnLpDecl.classList.toggle("active", state.lpAlert.decl333.zones.length>0||state.lpAlert.decl334.zones.length>0);}
+function updateLpAlertButton(){updateLpRangeButton();updateLpDeclButton();state.lpAlert.active=[state.lpAlert.range333,state.lpAlert.range334,state.lpAlert.decl333,state.lpAlert.decl334].some(ch=>ch.zones.length>0);}
+
+btnLpRange.addEventListener("click",()=>{
+  if(!state.df){showMessageModal("warn","Load Speed Data first","Load the Speed Data CSV before using LP Range Alert.");return;}
+  const la=state.lpAlert;
+  lpRangeThreshold.value  = la.rangeThreshold;
+  lpRangeColor333.value   = la.range333.color;
+  lpRangeColor334.value   = la.range334.color;
+  lpRangeCheck333.checked = la.range333.enabled;
+  lpRangeCheck334.checked = la.range334.enabled;
+  modalLpRange.classList.add("open");
+});
+document.getElementById("lp-range-cancel").addEventListener("click",()=>modalLpRange.classList.remove("open"));
+modalLpRange.addEventListener("click",(e)=>{if(e.target===modalLpRange)modalLpRange.classList.remove("open");});
+
+document.getElementById("lp-range-clear").addEventListener("click",()=>{
+  state.lpAlert.range333.zones=[];state.lpAlert.range334.zones=[];
+  modalLpRange.classList.remove("open");updateLpAlertButton();render();setStatus("LP Range Alert cleared.");
+});
+
+document.getElementById("lp-range-ok").addEventListener("click",()=>{
+  const thr=parseFloat(lpRangeThreshold.value);
+  if(!Number.isFinite(thr)||thr<0){showMessageModal("warn","Invalid threshold","Enter a valid positive number.");return;}
+  const la=state.lpAlert;
+  la.rangeThreshold      = thr;
+  la.range333.color      = lpRangeColor333.value;  la.range333.enabled = lpRangeCheck333.checked;
+  la.range334.color      = lpRangeColor334.value;  la.range334.enabled = lpRangeCheck334.checked;
+  la.range333.zones = la.range333.enabled ? computeAlertZones(state.df,"TMS333_LP Range (m)",thr) : [];
+  la.range334.zones = la.range334.enabled ? computeAlertZones(state.df,"TMS334_LP Range (m)",thr) : [];
+  modalLpRange.classList.remove("open");updateLpAlertButton();render();
+  const parts=[];
+  if(la.range333.zones.length)parts.push(`333: ${la.range333.zones.length} zone(s)`);
+  if(la.range334.zones.length)parts.push(`334: ${la.range334.zones.length} zone(s)`);
+  if(parts.length){setStatus(`LP Range Alert active — threshold ${thr}m — ${parts.join(", ")}`);showToast(`Range alert: ${parts.join(", ")}`);}
+  else{setStatus(`LP Range Alert: no zones above ${thr}m.`);showToast("No zones found.");}
+});
+
+/* ======================================================================
+   LP Declination Alert modal wiring
+   ====================================================================== */
+const modalLpDecl     = document.getElementById("modal-lp-decl");
+const btnLpDecl       = document.getElementById("btn-lp-decl");
+const lpDeclThreshold = document.getElementById("lp-decl-threshold");
+const lpDeclColor333  = document.getElementById("lp-decl-color-333");
+const lpDeclColor334  = document.getElementById("lp-decl-color-334");
+const lpDeclCheck333  = document.getElementById("lp-decl-333");
+const lpDeclCheck334  = document.getElementById("lp-decl-334");
+
+btnLpDecl.addEventListener("click",()=>{
+  if(!state.df){showMessageModal("warn","Load Speed Data first","Load the Speed Data CSV before using LP Declination Alert.");return;}
+  const la=state.lpAlert;
+  lpDeclThreshold.value  = la.declThreshold;
+  lpDeclColor333.value   = la.decl333.color;
+  lpDeclColor334.value   = la.decl334.color;
+  lpDeclCheck333.checked = la.decl333.enabled;
+  lpDeclCheck334.checked = la.decl334.enabled;
+  modalLpDecl.classList.add("open");
+});
+document.getElementById("lp-decl-cancel").addEventListener("click",()=>modalLpDecl.classList.remove("open"));
+modalLpDecl.addEventListener("click",(e)=>{if(e.target===modalLpDecl)modalLpDecl.classList.remove("open");});
+
+document.getElementById("lp-decl-clear").addEventListener("click",()=>{
+  state.lpAlert.decl333.zones=[];state.lpAlert.decl334.zones=[];
+  modalLpDecl.classList.remove("open");updateLpAlertButton();render();setStatus("LP Declination Alert cleared.");
+});
+
+document.getElementById("lp-decl-ok").addEventListener("click",()=>{
+  const thr=parseFloat(lpDeclThreshold.value);
+  if(!Number.isFinite(thr)||thr<0){showMessageModal("warn","Invalid threshold","Enter a valid positive number.");return;}
+  const la=state.lpAlert;
+  la.declThreshold      = thr;
+  la.decl333.color      = lpDeclColor333.value;  la.decl333.enabled = lpDeclCheck333.checked;
+  la.decl334.color      = lpDeclColor334.value;  la.decl334.enabled = lpDeclCheck334.checked;
+  la.decl333.zones = la.decl333.enabled ? computeAlertZones(state.df,"TMS333_LP Declination",thr) : [];
+  la.decl334.zones = la.decl334.enabled ? computeAlertZones(state.df,"TMS334_LP Declination",thr) : [];
+  modalLpDecl.classList.remove("open");updateLpAlertButton();render();
+  const parts=[];
+  if(la.decl333.zones.length)parts.push(`333: ${la.decl333.zones.length} zone(s)`);
+  if(la.decl334.zones.length)parts.push(`334: ${la.decl334.zones.length} zone(s)`);
+  if(parts.length){setStatus(`LP Decl Alert active — threshold ${thr}° — ${parts.join(", ")}`);showToast(`Decl alert: ${parts.join(", ")}`);}
+  else{setStatus(`LP Decl Alert: no zones above ${thr}°.`);showToast("No zones found.");}
+});
+
+/* ======================================================================
+   Message / question modals
+   ====================================================================== */
+const modalMessage=document.getElementById("modal-message"),modalMessageIcon=document.getElementById("modal-message-icon"),modalMessageTitle=document.getElementById("modal-message-title"),modalMessageBody=document.getElementById("modal-message-body"),modalMessageActions=document.getElementById("modal-message-actions");
+function showMessageModal(kind,title,text){modalMessageIcon.className="modal-icon "+(kind==="error"?"error":"warn");modalMessageIcon.textContent=kind==="error"?"\u2715":"!";modalMessageTitle.textContent=title;modalMessageBody.textContent=text;modalMessageActions.innerHTML="";const ok=document.createElement("button");ok.className="primary";ok.textContent="OK";ok.addEventListener("click",()=>modalMessage.classList.remove("open"));modalMessageActions.appendChild(ok);modalMessage.classList.add("open");}
+function showQuestionModal(title,text,onYes){modalMessageIcon.className="modal-icon question";modalMessageIcon.textContent="?";modalMessageTitle.textContent=title;modalMessageBody.textContent=text;modalMessageActions.innerHTML="";const no=document.createElement("button");no.textContent="No";no.addEventListener("click",()=>modalMessage.classList.remove("open"));const yes=document.createElement("button");yes.className="primary";yes.textContent="Yes";yes.addEventListener("click",()=>{modalMessage.classList.remove("open");onYes();});modalMessageActions.appendChild(no);modalMessageActions.appendChild(yes);modalMessage.classList.add("open");}
+modalMessage.addEventListener("click",(e)=>{if(e.target===modalMessage)modalMessage.classList.remove("open");});
+
+/* ---- colors dialog ---- */
+const modalColors=document.getElementById("modal-colors"),colorIfrInput=document.getElementById("color-ifr"),color334Input=document.getElementById("color-334"),color333Input=document.getElementById("color-333");
+document.getElementById("btn-colors").addEventListener("click",()=>{colorIfrInput.value=state.colorIfr;color334Input.value=state.color334;color333Input.value=state.color333;modalColors.classList.add("open");});
+document.getElementById("colors-close").addEventListener("click",()=>modalColors.classList.remove("open"));
+modalColors.addEventListener("click",(e)=>{if(e.target===modalColors)modalColors.classList.remove("open");});
+function applyReadoutColors() {
+  const c = { ifr: state.colorIfr, "334": state.color334, "333": state.color333 };
+  // SOG dots and values
+  const dotIfr  = document.getElementById("ro-dot-ifr");
+  const dotIfr2 = document.getElementById("ro-dot-334");  // avoid name clash
+  const dot333  = document.getElementById("ro-dot-333");
+  const dot334  = document.getElementById("ro-dot-334");
+  const sogIfr  = document.getElementById("ro-sog-ifr");
+  const sog334  = document.getElementById("ro-sog-334");
+  const sog333  = document.getElementById("ro-sog-333");
+  const secIfr  = document.getElementById("ro-sec-ifr");
+  const sec334  = document.getElementById("ro-sec-334");
+  const sec333  = document.getElementById("ro-sec-333");
+
+  function applyDot(el, hex) {
+    if (!el) return;
+    el.style.background  = hex;
+    el.style.boxShadow   = `0 0 6px ${hex}99`;
+  }
+  function applyVal(el, hex) {
+    if (!el) return;
+    el.style.color = hex;
+  }
+  function applyTitle(el, hex) {
+    if (!el) return;
+    el.style.color = hex;
+  }
+
+  applyDot(document.getElementById("ro-dot-ifr"), c.ifr);
+  applyDot(document.getElementById("ro-dot-334"), c["334"]);
+  applyDot(document.getElementById("ro-dot-333"), c["333"]);
+  applyVal(sogIfr, c.ifr);
+  applyVal(sog334, c["334"]);
+  applyVal(sog333, c["333"]);
+  applyTitle(secIfr, c.ifr);
+  applyTitle(sec334, c["334"]);
+  applyTitle(sec333, c["333"]);
+}
+
+function applyColorChange(which,hex){
+  if(which==="ifr"){state.colorIfr=hex;document.getElementById("dot-ifr").style.background=hex;localStorage.setItem("sv_color_ifr",hex);}
+  else if(which==="334"){state.color334=hex;document.getElementById("dot-334").style.background=hex;localStorage.setItem("sv_color_334",hex);}
+  else if(which==="333"){state.color333=hex;document.getElementById("dot-333").style.background=hex;localStorage.setItem("sv_color_333",hex);}
+  applyReadoutColors();
+  render();
+}
+colorIfrInput.addEventListener("input",()=>applyColorChange("ifr",colorIfrInput.value));
+color334Input.addEventListener("input",()=>applyColorChange("334",color334Input.value));
+color333Input.addEventListener("input",()=>applyColorChange("333",color333Input.value));
+
+/* ======================================================================
+   Report panel definitions
+   ====================================================================== */
+const REPORT_C_IFR="#c026d3",REPORT_C_COG="#0284c7",REPORT_C_333="#dc2626",REPORT_C_334="#16a34a";
+const REPORT_SINGLE_PANELS={sog_333:{title:"UHD333 \u00b7 Speed Over Ground",ylabel:"SOG (knots)",field:"UHD333 SOG (knot)",color:REPORT_C_333},sog_334:{title:"UHD334 \u00b7 Speed Over Ground",ylabel:"SOG (knots)",field:"UHD334 SOG (knot)",color:REPORT_C_334},depth_333:{title:"UHD333 \u00b7 Depth",ylabel:"Depth (m)",field:"UHD333 Depth (m)",color:REPORT_C_333},depth_334:{title:"UHD334 \u00b7 Depth",ylabel:"Depth (m)",field:"UHD334 Depth (m)",color:REPORT_C_334},alt_333:{title:"UHD333 \u00b7 Altimeter",ylabel:"Altimeter (m)",field:"UHD333 Altimeter (m)",color:REPORT_C_333},alt_334:{title:"UHD334 \u00b7 Altimeter",ylabel:"Altimeter (m)",field:"UHD334 Altimeter (m)",color:REPORT_C_334},lp_range_333:{title:"UHD333 \u00b7 LP Range",ylabel:"Range (m)",field:"TMS333_LP Range (m)",color:REPORT_C_333},lp_range_334:{title:"UHD334 \u00b7 LP Range",ylabel:"Range (m)",field:"TMS334_LP Range (m)",color:REPORT_C_334},lp_vdist_333:{title:"UHD333 \u00b7 LP Vertical Distance",ylabel:"Vert. Dist. (m)",field:"TMS333_LP Vertical distance (m)",color:REPORT_C_333},lp_vdist_334:{title:"UHD334 \u00b7 LP Vertical Distance",ylabel:"Vert. Dist. (m)",field:"TMS334_LP Vertical distance (m)",color:REPORT_C_334},lp_declination_333:{title:"UHD333 \u00b7 LP Declination",ylabel:"Declination (deg)",field:"TMS333_LP Declination",color:REPORT_C_333},lp_declination_334:{title:"UHD334 \u00b7 LP Declination",ylabel:"Declination (deg)",field:"TMS334_LP Declination",color:REPORT_C_334}};
+const PAIRED_SUFFIXES=["sog","depth","alt","lp_range","lp_vdist","lp_declination"];
+const PAIRED_LABELS={sog:"Speed Over Ground",depth:"Depth",alt:"Altimeter",lp_range:"LP Range",lp_vdist:"LP Vertical Distance",lp_declination:"LP Declination"};
+
+const modalReport=document.getElementById("modal-report"),beaconCheckGrid=document.getElementById("beacon-check-grid");
+(function(){for(const s of PAIRED_SUFFIXES)for(const b of["333","334"]){const key=`${s}_${b}`,lbl=document.createElement("label");lbl.className="panel-check-row";lbl.innerHTML=`<input type="checkbox" data-key="${key}" checked> ${PAIRED_LABELS[s]}`;beaconCheckGrid.appendChild(lbl);}})();
+function allReportCheckboxes(){return Array.from(modalReport.querySelectorAll('input[type=checkbox][data-key]'));}
+document.getElementById("btn-report").addEventListener("click",()=>{if(!state.df||!state.minuteTrack){showMessageModal("warn","Load Speed Data first","Load the Speed Data CSV before generating a report.");return;}if(!state.regions.length){showMessageModal("warn","No regions selected",'Click "SELECT REGIONS" and drag to mark at least one time window.');return;}modalReport.classList.add("open");});
+document.getElementById("report-cancel").addEventListener("click",()=>modalReport.classList.remove("open"));
+modalReport.addEventListener("click",(e)=>{if(e.target===modalReport)modalReport.classList.remove("open");});
+document.getElementById("report-select-all").addEventListener("click",()=>allReportCheckboxes().forEach(c=>c.checked=true));
+document.getElementById("report-select-none").addEventListener("click",()=>allReportCheckboxes().forEach(c=>c.checked=false));
+
+document.getElementById("report-ok").addEventListener("click",async()=>{
+  const selected=new Set(allReportCheckboxes().filter(c=>c.checked).map(c=>c.dataset.key));
+  modalReport.classList.remove("open");setStatus("Generating report\u2026");
+  await new Promise(r=>setTimeout(r,30));
+  try{const blob=await generateRegionReportPdf(selected);const url=URL.createObjectURL(blob);const a=document.createElement("a");const ds=fmtDate(state.dayStartEpoch);a.href=url;a.download=`IFR_Investigation_Report_${ds}.pdf`;document.body.appendChild(a);a.click();document.body.removeChild(a);setTimeout(()=>URL.revokeObjectURL(url),4000);setStatus(`Report saved: ${state.regions.length} region(s) \u2014 IFR_Investigation_Report_${ds}.pdf`);}
+  catch(err){showMessageModal("error","Error",`Could not generate report:\n${err.message}`);setStatus("Report generation failed");}
+});
+
+function logEntriesInWindow(start,end){return state.events.filter(e=>e.epoch>=start&&e.epoch<=end);}
+
+/* ======================================================================
+   PDF report generation
+   ====================================================================== */
+const REPORT_PAGE_W=612,REPORT_PAGE_H=792,REPORT_MARGIN=40;
+function makeOffscreenCanvas(wPx,hPx,scale=2){const c=document.createElement("canvas");c.width=wPx*scale;c.height=hPx*scale;const cx=c.getContext("2d");cx.scale(scale,scale);return{canvas:c,cx,w:wPx,h:hPx};}
+
+function drawReportPanel(cx,w,h,opts){
+  const{title,ylabel,series,winStart,winEnd,logEvents,withLogLabels}=opts;
+  const padL=46,padR=20,padT=22,padB=22,plotW=w-padL-padR,plotH=h-padT-padB;
+  cx.fillStyle="#ffffff";cx.fillRect(0,0,w,h);
+  let yMin=Infinity,yMax=-Infinity;
+  for(const s of series)for(const p of s.points)if(p.val!==null&&Number.isFinite(p.val)){if(p.val<yMin)yMin=p.val;if(p.val>yMax)yMax=p.val;}
+  const hasData=Number.isFinite(yMin)&&Number.isFinite(yMax);
+  if(!hasData){yMin=0;yMax=1;}if(yMax-yMin<1e-6){yMax+=1;yMin-=1;}
+  const pad=(yMax-yMin)*0.08;yMin-=pad;yMax+=pad;
+  if(opts.fixedYRange){yMin=opts.fixedYRange[0];yMax=opts.fixedYRange[1];}
+  const xP=(ep)=>padL+((ep-winStart)/Math.max(winEnd-winStart,1))*plotW;
+  const yP=(v)=>padT+plotH-((v-yMin)/(yMax-yMin))*plotH;
+  cx.strokeStyle="#e5e7eb";cx.lineWidth=0.7;cx.font="7.5px 'JetBrains Mono',monospace";cx.fillStyle="#4b5563";cx.textAlign="right";cx.textBaseline="middle";
+  for(let i=0;i<=4;i++){const v=yMin+(i/4)*(yMax-yMin);const py=yP(v);cx.beginPath();cx.moveTo(padL,py);cx.lineTo(w-padR,py);cx.stroke();cx.fillText(v.toFixed(Math.abs(v)<10?2:1),padL-5,py);}
+  if(!hasData){cx.fillStyle="#9ca3af";cx.font="italic 9px 'JetBrains Mono',monospace";cx.textAlign="center";cx.fillText("No data in window",padL+plotW/2,padT+plotH/2);}
+  else{for(const s of series){cx.strokeStyle=s.color;cx.lineWidth=1.3;cx.lineJoin="round";cx.beginPath();let started=false;for(const p of s.points){if(p.val===null||!Number.isFinite(p.val)){started=false;continue;}const px=xP(p.epoch),py=yP(p.val);if(!started){cx.moveTo(px,py);started=true;}else cx.lineTo(px,py);}cx.stroke();}if(series.length>1){let lx=w-padR-6;cx.font="7px 'JetBrains Mono',monospace";cx.textAlign="right";let ly=padT+9;for(const s of series){cx.fillStyle=s.color;cx.fillText(s.label,lx,ly);ly+=9;}}}
+  for(const ev of logEvents){const px=xP(ev.epoch);cx.strokeStyle="rgba(217,119,6,0.7)";cx.lineWidth=0.8;cx.setLineDash([1.5,2]);cx.beginPath();cx.moveTo(px,padT);cx.lineTo(px,padT+plotH);cx.stroke();cx.setLineDash([]);if(withLogLabels){cx.fillStyle="#d97706";cx.font="6px 'JetBrains Mono',monospace";cx.textAlign="center";cx.fillText(fmtHM(ev.epoch),px,padT-3);}}
+  cx.strokeStyle="#9ca3af";cx.lineWidth=0.8;cx.beginPath();cx.moveTo(padL,padT);cx.lineTo(padL,padT+plotH);cx.lineTo(w-padR,padT+plotH);cx.stroke();
+  cx.fillStyle="#4b5563";cx.font="7px 'JetBrains Mono',monospace";cx.textBaseline="top";
+  for(let i=0;i<=4;i++){const ep=winStart+(i/4)*(winEnd-winStart);cx.textAlign=i===0?"left":i===4?"right":"center";cx.fillText(fmtHMS(ep),xP(ep),padT+plotH+4);}
+  cx.fillStyle="#374151";cx.font="bold 9.5px 'JetBrains Mono',monospace";cx.textAlign="left";cx.textBaseline="alphabetic";cx.fillText(title,2,11);
+  cx.save();cx.translate(11,padT+plotH/2);cx.rotate(-Math.PI/2);cx.fillStyle="#4b5563";cx.font="8px 'JetBrains Mono',monospace";cx.textAlign="center";cx.fillText(ylabel,0,0);cx.restore();
+}
+
+function seriesPoints(rows,field,m0,m1){const out=[];for(const r of rows){if(r.epoch<m0||r.epoch>m1)continue;out.push({epoch:r.epoch,val:r[field]});}return out;}
+
+async function generateRegionReportPdf(selectedPanels){
+  const{jsPDF}=window.jspdf;const doc=new jsPDF({unit:"pt",format:"letter"});
+  let showSog=selectedPanels.has("ifr_sog"),showCog=selectedPanels.has("ifr_cog");
+  let activePanels=Object.keys(REPORT_SINGLE_PANELS).filter(k=>selectedPanels.has(k));
+  if(!showSog&&!showCog&&!activePanels.length){showSog=true;showCog=true;activePanels=Object.keys(REPORT_SINGLE_PANELS);}
+  const regions=state.regions.slice().sort((a,b)=>a.start-b.start);
+  const ds=fmtDate(state.dayStartEpoch);
+  doc.setFont("helvetica","bold");doc.setFontSize(18);doc.setTextColor(17,24,39);doc.text("IFR Speed Investigation Report",REPORT_MARGIN,64);
+  doc.setFont("helvetica","normal");doc.setFontSize(10.5);doc.setTextColor(107,114,128);doc.text(`${ds} UTC   |   ${regions.length} region(s) selected`,REPORT_MARGIN,82);
+  doc.setDrawColor(209,213,219);doc.setLineWidth(1);doc.line(REPORT_MARGIN,94,REPORT_PAGE_W-REPORT_MARGIN,94);
+  if(regions.length>0){
+    let ty=120;const colX=[REPORT_MARGIN,REPORT_MARGIN+50,REPORT_MARGIN+150,REPORT_MARGIN+250,REPORT_MARGIN+340];
+    doc.setFont("helvetica","bold");doc.setFontSize(9);doc.setTextColor(55,65,81);["#","Start (UTC)","End (UTC)","Duration","Log entries"].forEach((h,i)=>doc.text(h,colX[i],ty));ty+=8;doc.setDrawColor(229,231,235);doc.line(REPORT_MARGIN,ty,REPORT_PAGE_W-REPORT_MARGIN,ty);ty+=14;
+    doc.setFont("helvetica","normal");doc.setTextColor(31,41,55);
+    regions.forEach((r,i)=>{const dur=r.end-r.start,mins=Math.floor(dur/60),secs=Math.floor(dur%60),nLog=logEntriesInWindow(r.start,r.end).length;[`#${i+1}`,fmtHMS(r.start),fmtHMS(r.end),`${mins}m ${String(secs).padStart(2,"0")}s`,`${nLog} entr${nLog===1?"y":"ies"}`].forEach((c,ci)=>doc.text(c,colX[ci],ty));ty+=16;});
+  }
+  for(let i=0;i<regions.length;i++){
+    const r=regions[i];doc.addPage();const wEvs=logEntriesInWindow(r.start,r.end);let y=REPORT_MARGIN;
+    doc.setFont("helvetica","bold");doc.setFontSize(15);doc.setTextColor(17,24,39);doc.text(`Region #${i+1}`,REPORT_MARGIN,y+14);y+=28;
+    doc.setFont("helvetica","normal");doc.setFontSize(10);doc.setTextColor(107,114,128);const dur=r.end-r.start,mins=Math.floor(dur/60),secs=Math.floor(dur%60);doc.text(`${fmtHMS(r.start)} - ${fmtHMS(r.end)} UTC   |   Duration: ${mins}m ${String(secs).padStart(2,"0")}s   |   ${ds}`,REPORT_MARGIN,y);y+=10;doc.setDrawColor(209,213,219);doc.line(REPORT_MARGIN,y,REPORT_PAGE_W-REPORT_MARGIN,y);y+=14;
+    const panelW=REPORT_PAGE_W-2*REPORT_MARGIN,panelH=95,panelGap=10,pageBottom=REPORT_PAGE_H-REPORT_MARGIN;
+    const ensureSpace=(n)=>{if(y+n>pageBottom){doc.addPage();y=REPORT_MARGIN;doc.setFont("helvetica","bold");doc.setFontSize(10);doc.setTextColor(107,114,128);doc.text(`Region #${i+1} (continued)`,REPORT_MARGIN,y);y+=16;}};
+    const drawOnePanel=(title,ylabel,series,withLabels,fixedYRange)=>{ensureSpace(panelH);const off=makeOffscreenCanvas(panelW,panelH,2.5);drawReportPanel(off.cx,panelW,panelH,{title,ylabel,series,winStart:r.start,winEnd:r.end,logEvents:wEvs,withLogLabels:withLabels,fixedYRange});doc.addImage(off.canvas.toDataURL("image/png"),"PNG",REPORT_MARGIN,y,panelW,panelH);y+=panelH+panelGap;};
+    if(showSog){drawOnePanel("VESSEL \u00b7 IFR Speed Over Ground","SOG (knots)",[{points:seriesPoints(state.df,"IFR SOG (knot)",r.start,r.end),color:REPORT_C_IFR,label:"IFR SOG"}],true);}
+    if(showCog){drawOnePanel("VESSEL \u00b7 IFR Course Over Ground","COG (deg)",[{points:seriesPoints(state.df,"IFR COG",r.start,r.end),color:REPORT_C_COG,label:"IFR COG"}],!showSog,[0,360]);}
+    for(const key of activePanels){const p=REPORT_SINGLE_PANELS[key];drawOnePanel(p.title,p.ylabel,[{points:seriesPoints(state.df,p.field,r.start,r.end),color:p.color,label:""}],false);}
+    ensureSpace(24);doc.setFont("helvetica","bold");doc.setFontSize(8.5);doc.setTextColor(55,65,81);doc.text("LOG ENTRIES IN THIS WINDOW",REPORT_MARGIN,y+7);y+=16;
+    const logW=REPORT_PAGE_W-2*REPORT_MARGIN-4,lineH=8.6;
+    if(wEvs.length>0){doc.setTextColor(31,41,55);for(const ev of wEvs){const line=`${fmtHM(ev.epoch)}${ev.code?` [${ev.code}]`:""}  ${ev.remark}`;const wrapped=doc.splitTextToSize(line,logW);ensureSpace(wrapped.length*lineH);doc.setFont("helvetica","normal");doc.setFontSize(7.6);doc.setTextColor(31,41,55);doc.text(wrapped,REPORT_MARGIN,y);y+=wrapped.length*lineH;}}
+    else{doc.setTextColor(156,163,175);doc.setFont("helvetica","italic");doc.text("No log entries fall within this window.",REPORT_MARGIN,y);}
+  }
+  return doc.output("blob");
+}
+
+/* ======================================================================
+   LP LIVE Monitor
+   ====================================================================== */
+const speedupOverlay = document.getElementById("speedup-overlay");
+const btnLpLive      = document.getElementById("btn-lp-live");
+const modalLpLive    = document.getElementById("modal-lp-live");
+
+// Pulse animation — runs continuously when lp live is enabled
+let _lpLivePulseRaf = null;
+let _lpLivePulseVal = 0; // 0..1
+
+function _lpLivePulseLoop() {
+  _lpLivePulseVal = (Date.now() % 1200) / 1200; // 1.2s cycle
+  render(); // re-render with current pulse value
+  _lpLivePulseRaf = requestAnimationFrame(_lpLivePulseLoop);
+}
+
+function _startLpLivePulse() {
+  if (!_lpLivePulseRaf) _lpLivePulseLoop();
+}
+function _stopLpLivePulse() {
+  if (_lpLivePulseRaf) { cancelAnimationFrame(_lpLivePulseRaf); _lpLivePulseRaf = null; }
+  // Final render without pulse
+  render();
+}
+
+function updateSpeedupOverlay() {
+  const lp = state.lpLive;
+  const bothAlert = lp.alert333 && lp.alert334;
+  if (bothAlert && lp.enabled && liveMode) {
+    speedupOverlay.style.display = "flex";
+  } else {
+    speedupOverlay.style.display = "none";
+  }
+}
+
+function updateLpLiveButton() {
+  const lp = state.lpLive;
+  btnLpLive.classList.toggle("active", lp.enabled);
+  if (lp.enabled) {
+    btnLpLive.textContent = `LP LIVE  ·  <${lp.threshold}m`;
+  } else {
+    btnLpLive.textContent = "LP LIVE";
+  }
+}
+
+// Called on every live row — checks LP range values
+function checkLpLive(row) {
+  const lp = state.lpLive;
+  if (!lp.enabled || !liveMode) return;
+
+  // IFR speed suppress: if IFR SOG >= ifrSpeedThreshold (and threshold > 0), silence all alerts
+  if (lp.ifrSpeedThreshold > 0) {
+    const ifrSog = row["IFR SOG (knot)"];
+    if (ifrSog !== null && Number.isFinite(ifrSog) && ifrSog >= lp.ifrSpeedThreshold) {
+      lp.alert333 = false;
+      lp.alert334 = false;
+      updateSpeedupOverlay();
+      return;
+    }
+  }
+
+  const r333 = row["TMS333_LP Range (m)"];
+  const r334 = row["TMS334_LP Range (m)"];
+  if (r333 !== null && Number.isFinite(r333)) lp.alert333 = r333 < lp.threshold;
+  if (r334 !== null && Number.isFinite(r334)) lp.alert334 = r334 < lp.threshold;
+
+  updateSpeedupOverlay();
+}
+
+// Override drawCurve to support pulse glow on specific series
+const _origDrawCurve = drawCurve;
+window.drawCurveWithPulse = function(points, key, color, area) {
+  const lp = state.lpLive;
+  let needsPulse = false;
+  if (lp.enabled && liveMode) {
+    if (key === "u333" && lp.alert333) needsPulse = true;
+    if (key === "u334" && lp.alert334) needsPulse = true;
+  }
+
+  if (!needsPulse) {
+    _origDrawCurve(points, key, color, area);
+    return;
+  }
+
+  // Aggressive pulse: sine 0..1
+  const sine = 0.5 - 0.5 * Math.cos(_lpLivePulseVal * 2 * Math.PI);
+
+  const segs = [];
+  let cur = [];
+  for (const p of points) {
+    const v = p[key];
+    if (v === null || !Number.isFinite(v)) { if (cur.length > 1) segs.push(cur); cur = []; continue; }
+    cur.push([xToPx(p.epoch, area), yToPx(v, area)]);
+  }
+  if (cur.length > 1) segs.push(cur);
+  if (!segs.length) return;
+
+  const drawSegs = () => {
+    for (const s of segs) { catmullRomStroke(ctx, s); }
+  };
+
+  ctx.save();
+  ctx.lineJoin = "round"; ctx.lineCap = "round";
+
+  // Pass 1 — wide soft halo (very thick, very transparent)
+  ctx.globalAlpha = 0.12 + sine * 0.30;  // 0.12..0.42
+  ctx.strokeStyle = color;
+  ctx.lineWidth   = 12 + sine * 14;       // thinner halo: 12..26px
+  ctx.shadowColor = color;
+  ctx.shadowBlur  = 0;
+  ctx.filter      = `blur(${3 + sine * 6}px)`;
+  drawSegs();
+
+  // Pass 2 — medium glow ring
+  ctx.filter      = "none";
+  ctx.globalAlpha = 0.35 + sine * 0.45;  // 0.35..0.80
+  ctx.strokeStyle = color;
+  ctx.lineWidth   = 4 + sine * 5;         // thinner: 4..9
+  ctx.shadowColor = color;
+  ctx.shadowBlur  = 20 + sine * 30;       // glow stays bright: 20..50
+  drawSegs();
+
+  // Pass 3 — crisp core line
+  ctx.shadowBlur  = 6 + sine * 14;
+  ctx.globalAlpha = 1;
+  ctx.strokeStyle = color;
+  ctx.lineWidth   = 1.5;
+  drawSegs();
+
+  ctx.restore();
+};
+
+// Patch the render() call to use pulse-aware drawCurve
+const _origRenderForPulse = render;
+render = function() {
+  if (!cssW || !cssH) resizeCanvas();
+  ctx.clearRect(0, 0, cssW, cssH);
+  if (!state.minuteTrack) { chartEmpty.classList.remove("hidden"); return; }
+  chartEmpty.classList.add("hidden");
+  const area = plotArea();
+  ctx.save(); ctx.beginPath(); ctx.rect(area.x0, area.y0, area.w, area.h); ctx.clip();
+  drawSavedRegions(area);
+  drawLpAlertZones(area);
+  drawLogMarkers(area);
+  drawNodeFixMarkers(area);
+  if (state.visible.u334) window.drawCurveWithPulse(state.minuteTrack, "u334", state.color334, area);
+  if (state.visible.u333) window.drawCurveWithPulse(state.minuteTrack, "u333", state.color333, area);
+  if (state.visible.ifr)  _origDrawCurve(state.minuteTrack, "ifr", state.colorIfr, area);
+  drawDragRegion(area); drawHoverCrosshair(area);
+  ctx.restore(); drawGrid(area);
+};
+
+// Modal wiring
+btnLpLive.addEventListener("click", () => {
+  document.getElementById("lp-live-threshold").value = state.lpLive.threshold;
+  document.getElementById("lp-live-ifr-threshold").value = state.lpLive.ifrSpeedThreshold || 0;
+  modalLpLive.classList.add("open");
+});
+document.getElementById("lp-live-cancel").addEventListener("click", () => modalLpLive.classList.remove("open"));
+modalLpLive.addEventListener("click", e => { if (e.target === modalLpLive) modalLpLive.classList.remove("open"); });
+
+document.getElementById("lp-live-disable").addEventListener("click", () => {
+  state.lpLive.enabled  = false;
+  state.lpLive.alert333 = false;
+  state.lpLive.alert334 = false;
+  _stopLpLivePulse();
+  updateSpeedupOverlay();
+  updateLpLiveButton();
+  modalLpLive.classList.remove("open");
+  setStatus("LP Live monitor disabled.");
+});
+
+document.getElementById("lp-live-ok").addEventListener("click", () => {
+  const thr = parseFloat(document.getElementById("lp-live-threshold").value);
+  if (!Number.isFinite(thr) || thr < 0) { showMessageModal("warn", "Invalid threshold", "Enter a valid positive number."); return; }
+  const ifrThr = parseFloat(document.getElementById("lp-live-ifr-threshold").value) || 0;
+  state.lpLive.threshold = thr;
+  state.lpLive.ifrSpeedThreshold = ifrThr;
+  state.lpLive.enabled   = true;
+  state.lpLive.alert333  = false;
+  state.lpLive.alert334  = false;
+  _startLpLivePulse();
+  updateLpLiveButton();
+  modalLpLive.classList.remove("open");
+  const ifrNote = ifrThr > 0 ? `  ·  suppress ≥${ifrThr}kn` : "";
+  setStatus(`LP Live monitor active — threshold ${thr} m${ifrNote}`);
+  showToast(`LP Live ON — ${thr} m${ifrNote}`);
+});
+
+/* ======================================================================
+   Init
+   ====================================================================== */
+resizeCanvas();
+render();
+
+/* ======================================================================
+   LIVE WebSocket + Archive
+   ====================================================================== */
+
+// ── state ──
+let ws                 = null;
+let wsReconnectTimer   = null;
+let liveMode           = false;
+let _wsUserDisconnected = false;  // true = user pressed DISCONNECT, skip reconnect
+let _wsReconnectDelay  = 5000;   // backoff: 5s → 10s → 20s → 30s max
+let _autoLogTimer      = null;   // setInterval for auto log refresh
+let _inArchiveView     = false;  // true when user has selected an archive day
+
+const liveDot        = document.getElementById("live-dot");
+const wsIpInput      = document.getElementById("ws-ip");
+const wsPortInput    = document.getElementById("ws-port-input");
+const btnLiveConnect = document.getElementById("btn-live-connect");
+const archiveSelect  = document.getElementById("archive-select");
+
+// ── dot state ──
+function setDot(cls) {
+  liveDot.className = "";
+  if (cls) liveDot.classList.add(cls);
+}
+
+// ── auto-log timer helpers ──
+function _startAutoLogTimer() {
+  _stopAutoLogTimer();
+  _autoLogTimer = setInterval(() => {
+    if (ws && ws.readyState === WebSocket.OPEN && state.df && !_inArchiveView) {
+      ws.send(JSON.stringify({ type: "get_log", base_date: fmtDate(state.dayStartEpoch) }));
+    }
+  }, 60000);
+}
+function _stopAutoLogTimer() {
+  if (_autoLogTimer) { clearInterval(_autoLogTimer); _autoLogTimer = null; }
+}
+
+// ── show / hide AUTO UPDATE button ──
+function _showAutoUpdate() {
+  btnUpdateLog.style.display = "";
+  btnUpdateLog.textContent   = "↺ AUTO UPDATE";
+  btnUpdateLog.classList.add("auto-active");
+  btnUpdateLog.disabled = false;
+}
+function _hideAutoUpdate() {
+  _stopAutoLogTimer();
+  btnUpdateLog.style.display = "none";
+  btnUpdateLog.classList.remove("auto-active");
+}
+function _resetUpdateBtn() {
+  _stopAutoLogTimer();
+  btnUpdateLog.style.display = "";
+  btnUpdateLog.textContent   = "↺ UPDATE";
+  btnUpdateLog.classList.remove("auto-active");
+}
+
+// ── connect / disconnect ──
+btnLiveConnect.addEventListener("click", () => {
+  if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
+    disconnectWs();
+  } else {
+    connectWs();
+  }
+});
+
+function connectWs() {
+  const ip   = wsIpInput.value.trim();
+  const port = wsPortInput.value.trim() || "8765";
+  if (!ip) { showToast("Enter bridge IP first"); return; }
+  _wsUserDisconnected = false;
+  _wsReconnectDelay   = 5000;
+  clearTimeout(wsReconnectTimer);
+  const url = `ws://${ip}:${port}`;
+  setDot("connecting");
+  btnLiveConnect.textContent = "DISCONNECT";
+  setStatus(`Connecting to ${url}…`);
+
+  ws = new WebSocket(url);
+
+  ws.onopen = () => {
+    setDot("connected");
+    liveMode = true;
+    _wsReconnectDelay = 5000;
+    setStatus(`Live — connected to ${url}`);
+    showToast("Live connected");
+    // Request archive day list
+    ws.send(JSON.stringify({ type: "get_days" }));
+    // Auto-load today's archive and node fixes
+    const today = new Date();
+    const todayStr = `${today.getUTCFullYear()}-${String(today.getUTCMonth()+1).padStart(2,"0")}-${String(today.getUTCDate()).padStart(2,"0")}`;
+    ws.send(JSON.stringify({ type: "get_archive", day: todayStr }));
+    ws.send(JSON.stringify({ type: "get_node_fixes", day: todayStr }));
+    // Show AUTO UPDATE — today's data, not an archive view
+    if (!_inArchiveView) {
+      _showAutoUpdate();
+      _startAutoLogTimer();
+    }
+  };
+
+  ws.onmessage = (e) => {
+    try { handleWsMessage(JSON.parse(e.data)); } catch (_) {}
+  };
+
+  ws.onerror = () => {
+    setDot("error");
+    setStatus("WebSocket error");
+  };
+
+  ws.onclose = () => {
+    liveMode = false;
+    // Reset button — but keep it hidden if we're in archive view
+    if (_inArchiveView) {
+      _hideAutoUpdate();
+    } else {
+      _resetUpdateBtn();
+    }
+    // Data stays on screen — do NOT clear state.df or state.events
+    if (_wsUserDisconnected) {
+      setDot("");
+      btnLiveConnect.textContent = "CONNECT LIVE";
+      setStatus("Disconnected");
+    } else {
+      // Unexpected drop — reconnect with backoff
+      setDot("reconnecting");
+      btnLiveConnect.textContent = "DISCONNECT";
+      const delay = _wsReconnectDelay;
+      setStatus(`Disconnected — reconnecting in ${delay/1000}s…`);
+      wsReconnectTimer = setTimeout(() => {
+        _wsReconnectDelay = Math.min(_wsReconnectDelay * 2, 30000);
+        connectWs();
+      }, delay);
+    }
+  };
+}
+
+function switchToLive() {
+  state.df = null;
+  state.dayStartEpoch = null;
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    const today = new Date();
+    const todayStr = today.getUTCFullYear()+"-"+String(today.getUTCMonth()+1).padStart(2,"0")+"-"+String(today.getUTCDate()).padStart(2,"0");
+    ws.send(JSON.stringify({ type: "get_archive", day: todayStr }));
+    ws.send(JSON.stringify({ type: "get_node_fixes", day: todayStr }));
+  }
+}
+
+function disconnectWs() {
+  liveMode = false;
+  _wsUserDisconnected = true;
+  clearTimeout(wsReconnectTimer);
+  _resetUpdateBtn();
+  if (ws) { ws.onclose = null; ws.close(); ws = null; }
+  setDot("");
+  btnLiveConnect.textContent = "CONNECT LIVE";
+  setStatus("Disconnected");
+  // Reset LP Live alerts — no longer live
+  state.lpLive.alert333 = false;
+  state.lpLive.alert334 = false;
+  updateSpeedupOverlay();
+  _stopLpLivePulse();
+}
+
+// ── handle incoming WS messages ──
+function handleWsMessage(msg) {
+  switch (msg.type) {
+
+    case "header":
+      // CSV header sent on connect — we already know it, ignore
+      break;
+
+    case "live":
+      handleLiveRow(msg.row);
+      break;
+
+    case "days":
+      populateArchiveSelect(msg.list);
+      break;
+
+    case "archive":
+      loadArchiveData(msg.day, msg.rows);
+      break;
+
+    case "log_data":
+      // Events from bridge — already parsed, just apply
+      state.events = msg.events.map(e => ({
+        epoch:  e.epoch,
+        code:   e.code  || "",
+        remark: e.remark|| ""
+      }));
+      updateSampleCount(state.events.length);
+      btnUpdateLog.disabled = false;
+      render();
+      setStatus(`Log: ${msg.count} events from ${msg.file} — ${new Date().toLocaleTimeString()}`);
+      showToast(`Log loaded: ${msg.count} events`);
+      break;
+
+    case "log_error":
+      showMessageModal("error", "Log Error", msg.error);
+      break;
+
+    case "node_fix":
+      // Incoming live node fix from bridge
+      if(msg.ts){
+        const epoch=parseTsToEpoch(msg.ts);
+        if(epoch!==null){
+          state.nodeFixes.push({epoch,uhd:msg.uhd,rl:msg.rl,st:msg.st,id:msg.id});
+          state.nodeFixes.sort((a,b)=>a.epoch-b.epoch);
+          if(state.showNodeFixes){updateNodeCount();render();}
+        }
+      }
+      break;
+
+    case "node_fixes_archive":
+      // Bulk node fixes for a specific day from CSV archive
+      state.nodeFixes = [];
+      if(msg.rows && msg.rows.length){
+        for(const r of msg.rows){
+          const epoch = parseTsToEpoch(r.ts);
+          if(epoch !== null){
+            state.nodeFixes.push({epoch, uhd:r.uhd, rl:r.rl, st:r.st, id:r.id});
+          }
+        }
+        state.nodeFixes.sort((a,b)=>a.epoch-b.epoch);
+      }
+      updateNodeCount();
+      if(state.showNodeFixes) render();
+      break;
+  }
+}
+
+// ── live row handling ──
+// Accumulate rows into state.df / minuteTrack in real time
+function handleLiveRow(csvRow) {
+  if (_inArchiveView) return; // Don't overwrite archive data with live packets
+  if (!csvRow) return;
+
+  // parse into a row object using existing CSV parser logic
+  const fields = csvRow.split(",");
+  if (fields.length < 2) return;
+
+  const epoch = parseTsToEpoch(fields[0]);
+  if (epoch === null) return;
+
+  const row = { epoch };
+  NUMERIC_FIELDS.forEach((f, i) => {
+    // map position: fields[0]=ts, fields[1..] = numeric columns in CSV order
+    const CSV_COLS = [
+      "IFR Easting (Metre) (32615)", "IFR Northing (Metre) (32615)",
+      "IFR SOG (knot)", "IFR COG",
+      "UHD333 Easting (Metre) (32615)", "UHD333 Northing (Metre) (32615)",
+      "UHD333 Depth (m)", "UHD333 Altimeter (m)", "UHD333 SOG (knot)", "UHD333 COG",
+      "TMS333_LP Range (m)", "TMS333_LP Vertical distance (m)", "TMS333_LP Declination",
+      "UHD334 Easting (Metre) (32615)", "UHD334 Northing (Metre) (32615)",
+      "UHD334 Depth (m)", "UHD334 Altimeter (m)", "UHD334 SOG (knot)", "UHD334 COG",
+      "TMS334_LP Range (m)", "TMS334_LP Vertical distance (m)", "TMS334_LP Declination",
+    ];
+    const idx = CSV_COLS.indexOf(f);
+    row[f] = idx >= 0 ? safeFloat(fields[idx + 1]) : null;
+  });
+
+  // init state if first live row or new day
+  const rowDay = dayStartOf(epoch);
+
+  // ── Midnight UTC rollover — smooth transition ──────────────────────
+  // If we have data from a previous day and a new day packet arrives,
+  // request today's archive from bridge and reset gracefully without
+  // visually clearing the chart until new data arrives.
+  if (state.df && state.dayStartEpoch !== null && state.dayStartEpoch !== rowDay) {
+    // New day detected — request fresh archive for today
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      const todayStr = `${new Date(rowDay*1000).getUTCFullYear()}-${String(new Date(rowDay*1000).getUTCMonth()+1).padStart(2,"0")}-${String(new Date(rowDay*1000).getUTCDate()).padStart(2,"0")}`;
+      ws.send(JSON.stringify({ type: "get_archive", day: todayStr }));
+      ws.send(JSON.stringify({ type: "get_days" }));
+      ws.send(JSON.stringify({ type: "get_node_fixes", day: todayStr }));
+    }
+    // Reset state for new day
+    state.df            = [];
+    state._dfEpochs     = [];
+    state.dayStartEpoch = rowDay;
+    state.minuteTrack   = buildMinuteTrack([], rowDay);
+    state.viewX0        = rowDay;
+    state.viewX1        = rowDay + 86400 - 1;
+    state.regions       = [];
+    state.nextRegionId  = 1;
+    state.events        = [];
+    state.nodeFixes     = [];
+    _userPanned         = false;
+    renderRegionChips();
+    refreshRegionHint();
+    updateSampleCount(0);
+    clearReadout();
+    const la = state.lpAlert;
+    la.active = false;
+    for (const ch of [la.range333, la.range334, la.decl333, la.decl334]) ch.zones = [];
+    updateLpAlertButton();
+    showToast("UTC midnight — new day started");
+    // Auto log refresh for new day
+    if (liveMode && !_inArchiveView) {
+      _stopAutoLogTimer();
+      _showAutoUpdate();
+      _startAutoLogTimer();
+    }
+  }
+
+  if (!state.df || state.dayStartEpoch !== rowDay) {
+    // First live row ever
+    state.df            = [];
+    state._dfEpochs     = [];
+    state.dayStartEpoch = rowDay;
+    state.minuteTrack   = buildMinuteTrack([], rowDay);
+    state.viewX0        = rowDay;
+    state.viewX1        = rowDay + 86400 - 1;
+    state.regions       = [];
+    state.nextRegionId  = 1;
+    state.events        = [];
+    renderRegionChips();
+    refreshRegionHint();
+    updateSampleCount(0);
+    clearReadout();
+    const la = state.lpAlert;
+    la.active = false;
+    for (const ch of [la.range333, la.range334, la.decl333, la.decl334]) ch.zones = [];
+    updateLpAlertButton();
+  }
+
+  // append row
+  state.df.push(row);
+  state._dfEpochs.push(epoch);
+
+  // update minute bucket
+  const mEpoch = Math.floor(epoch / 60) * 60;
+  let bucket = state.minuteTrack.find(p => p.epoch === mEpoch);
+  if (!bucket) {
+    bucket = { epoch: mEpoch, ifr: null, u334: null, u333: null };
+    state.minuteTrack.push(bucket);
+    state.minuteTrack.sort((a, b) => a.epoch - b.epoch);
+  }
+  // running mean update
+  const sogKeys = { ifr: "IFR SOG (knot)", u334: "UHD334 SOG (knot)", u333: "UHD333 SOG (knot)" };
+  for (const [key, field] of Object.entries(sogKeys)) {
+    const v = row[field];
+    if (v !== null && Number.isFinite(v)) {
+      bucket[key] = bucket[key] === null ? v : (bucket[key] + v) / 2;
+    }
+  }
+
+  state.yMax = computeAutoYMax(state.minuteTrack);
+
+  // LP Live monitor check
+  checkLpLive(row);
+
+  // auto-scroll only if user hasn't manually panned the view
+  if (!_userPanned) {
+    // Keep latest data at 75% from left — room for history on left, future on right
+    const LIVE_WINDOW = 3600; // total visible span in seconds
+    const winEnd = epoch + LIVE_WINDOW * 0.25;
+    state.viewX0 = winEnd - LIVE_WINDOW;
+    state.viewX1 = winEnd;
+  } else {
+    // User has panned — only resume autoscroll if scroll lock is off
+    // and they manually scrolled to the right edge
+    if (!_scrollLocked) {
+      const span = state.viewX1 - state.viewX0;
+      if (epoch >= state.viewX1 - 30 && span <= 3700) {
+        _userPanned = false;
+      }
+    }
+  }
+
+  render();
+  setStatus(`LIVE  ·  ${fmtHMS(epoch)}  ·  ${state.df.length.toLocaleString()} samples today`);
+}
+
+// ── archive select ──
+function populateArchiveSelect(days) {
+  // keep first placeholder option
+  while (archiveSelect.options.length > 1) archiveSelect.remove(1);
+  for (const day of days) {
+    const opt = document.createElement("option");
+    opt.value = day;
+    opt.textContent = day;
+    archiveSelect.appendChild(opt);
+  }
+}
+
+function setNowActive(active) {
+  if (active) {
+    archiveSelect.classList.add("now-active");
+  } else {
+    archiveSelect.classList.remove("now-active");
+  }
+}
+archiveSelect.addEventListener("change", () => {
+  const day = archiveSelect.value;
+  if (!day || day === "__now__") {
+    // Back to live / today
+    _inArchiveView = false;
+    setNowActive(true);
+    switchToLive();
+    if (liveMode) { _showAutoUpdate(); _startAutoLogTimer(); }
+    setStatus("Live mode — showing today's data");
+    return;
+  }
+  setNowActive(false);
+  const today = new Date();
+  const todayStr = `${today.getUTCFullYear()}-${String(today.getUTCMonth()+1).padStart(2,"0")}-${String(today.getUTCDate()).padStart(2,"0")}`;
+  if (day === todayStr) {
+    // Today selected manually — treat same as live, keep AUTO UPDATE
+    _inArchiveView = false;
+    if (liveMode && !_autoLogTimer) { _showAutoUpdate(); _startAutoLogTimer(); }
+  } else {
+    // Past day — hide AUTO UPDATE
+    _inArchiveView = true;
+    _hideAutoUpdate();
+  }
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  setStatus(`Loading archive: ${day}…`);
+  ws.send(JSON.stringify({ type: "get_archive", day }));
+  ws.send(JSON.stringify({ type: "get_node_fixes", day }));
+});
+
+function loadArchiveData(day, rows) {
+  if (!rows || !rows.length) {
+    showToast(`No data for ${day}`);
+    return;
+  }
+  const csvText = CSV_HEADER + "\n" + rows.join("\n");
+  try {
+    const parsedRows = loadSpeedCsvText(csvText);
+    applySpeedData(parsedRows);
+    renderRegionChips();
+    refreshRegionHint();
+    updateSampleCount();
+    resizeCanvas();
+    render();
+    // Check if this is today's archive (auto-loaded on connect)
+    const today = new Date();
+    const todayStr = `${today.getUTCFullYear()}-${String(today.getUTCMonth()+1).padStart(2,"0")}-${String(today.getUTCDate()).padStart(2,"0")}`;
+    if (day === todayStr) {
+      // Today — keep AUTO UPDATE active, don't treat as archive view
+      _inArchiveView = false;
+      if (liveMode) { _showAutoUpdate(); _startAutoLogTimer(); }
+      setStatus(`Today: ${parsedRows.length.toLocaleString()} samples — live data continues`);
+    } else {
+      setStatus(`Archive: ${day}  ·  ${parsedRows.length.toLocaleString()} samples`);
+      showToast(`Loaded archive: ${day}`);
+    }
+  } catch (err) {
+    showMessageModal("error", "Archive Error", err.message);
+  }
+}
+
+// ── Altimeter mini-overlays ───────────────────────────────────────────
+(function() {
+  const ALT_WINDOW = 5 * 60; // 5 minutes in seconds
+
+  function drawAltOverlay(canvasId, valueId, titleId, field, color, cursorEpoch) {
+    const cv  = document.getElementById(canvasId);
+    const val = document.getElementById(valueId);
+    const ttl = document.getElementById(titleId);
+    if (!cv) return;
+
+    cv.parentElement.style.borderColor = color + "44";
+    ttl.style.color = color;
+
+    const ctx = cv.getContext("2d");
+    const W = cv.width, H = cv.height;
+    ctx.clearRect(0, 0, W, H);
+
+    if (!state.df || !state.df.length) {
+      val.textContent = "—";
+      val.style.color = "var(--text-dim)";
+      return;
+    }
+
+    const lastEpoch = state.df[state.df.length - 1].epoch;
+    const center = (cursorEpoch !== null && cursorEpoch !== undefined) ? cursorEpoch : lastEpoch;
+    const t0 = center - ALT_WINDOW / 2;
+    const t1 = center + ALT_WINDOW / 2;
+
+    const pts = state.df.filter(r => r.epoch >= t0 && r.epoch <= t1 && r[field] !== null && Number.isFinite(r[field]));
+
+    if (!pts.length) {
+      val.textContent = "—";
+      val.style.color = "var(--text-dim)";
+      ctx.strokeStyle = "rgba(23,48,73,0.6)";
+      ctx.lineWidth = 1;
+      for (let i = 0; i <= 2; i++) {
+        const y = Math.round(H * i / 2) + 0.5;
+        ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+      }
+      return;
+    }
+
+    let yMin = Infinity, yMax = -Infinity;
+    for (const p of pts) { if (p[field] < yMin) yMin = p[field]; if (p[field] > yMax) yMax = p[field]; }
+    const yRange = Math.max(yMax - yMin, 5) || 5;  // minimum 5m range
+    const pad = yRange * 0.12;
+    const ya = yMin - pad, yb = yMax + pad;
+
+    const xScale = W / (t1 - t0);
+    const yScale = H / (yb - ya);
+    const toX = e => (e - t0) * xScale;
+    const toY = v => H - (v - ya) * yScale;
+
+    // Grid
+    ctx.strokeStyle = "rgba(23,48,73,0.7)";
+    ctx.lineWidth = 1;
+    for (let i = 0; i <= 2; i++) {
+      const y = Math.round(H * i / 2) + 0.5;
+      ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+    }
+
+    // Center cursor line
+    ctx.strokeStyle = "rgba(255,255,255,0.08)";
+    ctx.lineWidth = 1;
+    ctx.setLineDash([3, 3]);
+    ctx.beginPath(); ctx.moveTo(toX(center), 0); ctx.lineTo(toX(center), H); ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Glow fill — Catmull-Rom path for smooth fill
+    const grad = ctx.createLinearGradient(0, 0, 0, H);
+    grad.addColorStop(0, color + "33");
+    grad.addColorStop(1, color + "00");
+    const altPts = pts.map(p => [toX(p.epoch), toY(p[field])]);
+    ctx.beginPath();
+    ctx.moveTo(toX(pts[0].epoch), H);
+    catmullRomPath(ctx, altPts);
+    ctx.lineTo(toX(pts[pts.length-1].epoch), H);
+    ctx.closePath();
+    ctx.fillStyle = grad;
+    ctx.fill();
+
+    // Line — Catmull-Rom smooth
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1.5;
+    ctx.lineJoin = "round";
+    ctx.lineCap = "round";
+    catmullRomStroke(ctx, altPts);
+
+    // Closest value to cursor
+    let closest = pts[0], minDist = Math.abs(pts[0].epoch - center);
+    for (const p of pts) {
+      const d = Math.abs(p.epoch - center);
+      if (d < minDist) { minDist = d; closest = p; }
+    }
+    const v = closest[field];
+    val.textContent = Number.isFinite(v) ? v.toFixed(1) + " m" : "—";
+    val.style.color = color;
+  }
+
+  window.renderAltOverlays = function renderAltOverlays() {
+    const cursor = state.hoverEpoch;
+    drawAltOverlay("alt-canvas-334","alt-value-334","alt-title-334","UHD334 Altimeter (m)",state.color334,cursor);
+    drawAltOverlay("alt-canvas-333","alt-value-333","alt-title-333","UHD333 Altimeter (m)",state.color333,cursor);
+  }
+
+  const _origRender = window.render;
+  const renderAltOverlays = window.renderAltOverlays;
+  if (typeof _origRender === "function") {
+    window.render = function() { _origRender(); renderAltOverlays(); };
+  }
+
+  const chartCanvas = document.getElementById("chart-canvas");
+  if (chartCanvas) {
+    chartCanvas.addEventListener("mousemove", () => renderAltOverlays());
+    chartCanvas.addEventListener("mouseleave", () => renderAltOverlays());
+  }
+
+  window.addEventListener("load", () => {
+    renderAltOverlays();
+    document.getElementById("dot-ifr").style.background = state.colorIfr;
+    document.getElementById("dot-334").style.background = state.color334;
+    document.getElementById("dot-333").style.background = state.color333;
+    applyReadoutColors();
+  });
+})();
+
+// CSV_HEADER const needed for archive loader
+const CSV_HEADER = (
+  "TimeStamp (Utc)," +
+  "IFR Easting (Metre) (32615),IFR Northing (Metre) (32615)," +
+  "IFR SOG (knot),IFR COG," +
+  "UHD333 Easting (Metre) (32615),UHD333 Northing (Metre) (32615)," +
+  "UHD333 Depth (m),UHD333 Altimeter (m),UHD333 SOG (knot),UHD333 COG," +
+  "TMS333_LP Range (m),TMS333_LP Vertical distance (m),TMS333_LP Declination," +
+  "UHD334 Easting (Metre) (32615),UHD334 Northing (Metre) (32615)," +
+  "UHD334 Depth (m),UHD334 Altimeter (m),UHD334 SOG (knot),UHD334 COG," +
+  "TMS334_LP Range (m),TMS334_LP Vertical distance (m),TMS334_LP Declination"
+);
+
+// ── Alt overlay drag & resize ─────────────────────────────────────────
+(function() {
+  function makeDraggable(el) {
+    let ox=0, oy=0, sx=0, sy=0, dragging=false;
+
+    // Save/restore position from localStorage
+    const key = "sv_alt_pos_" + el.id;
+    const saved = localStorage.getItem(key);
+    if (saved) {
+      try {
+        const {top,left,width,height} = JSON.parse(saved);
+        el.style.top    = top;
+        el.style.left   = left;
+        el.style.right  = "";
+        if (width)  el.style.width  = width;
+        if (height) el.style.height = height;
+      } catch(e) {}
+    }
+
+    function savePos() {
+      localStorage.setItem(key, JSON.stringify({
+        top:    el.style.top,
+        left:   el.style.left,
+        width:  el.style.width,
+        height: el.style.height
+      }));
+    }
+
+    el.addEventListener("mousedown", e => {
+      // Ignore resize handle (bottom-right corner ~16px)
+      const r = el.getBoundingClientRect();
+      if (e.clientX > r.right - 18 && e.clientY > r.bottom - 18) return;
+      dragging = true;
+      ox = e.clientX; oy = e.clientY;
+      sx = el.offsetLeft; sy = el.offsetTop;
+      el.style.cursor = "grabbing";
+      el.style.right = "";
+      e.preventDefault();
+    });
+
+    document.addEventListener("mousemove", e => {
+      if (!dragging) return;
+      const dx = e.clientX - ox, dy = e.clientY - oy;
+      const parent = el.parentElement;
+      const pr = parent.getBoundingClientRect();
+      let nx = sx + dx, ny = sy + dy;
+      // Clamp inside parent
+      nx = Math.max(0, Math.min(nx, pr.width  - el.offsetWidth));
+      ny = Math.max(0, Math.min(ny, pr.height - el.offsetHeight));
+      el.style.left = nx + "px";
+      el.style.top  = ny + "px";
+    });
+
+    document.addEventListener("mouseup", e => {
+      if (!dragging) return;
+      dragging = false;
+      el.style.cursor = "grab";
+      savePos();
+    });
+
+    // Watch resize via ResizeObserver
+    new ResizeObserver(() => {
+      savePos();
+      // Sync canvas resolution to display size
+      const cv = el.querySelector("canvas");
+      if (cv) {
+        const rect = cv.getBoundingClientRect();
+        if (rect.width > 0 && rect.height > 0) {
+          cv.width  = Math.round(rect.width);
+          cv.height = Math.round(rect.height);
+        }
+      }
+      if (typeof renderAltOverlays === "function") renderAltOverlays();
+    }).observe(el);
+  }
+
+  window.addEventListener("load", () => {
+    ["alt-overlay-334", "alt-overlay-333", "node-count"].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) makeDraggable(el);
+    });
+  });
+})();
+
+// expose renderAltOverlays globally so ResizeObserver can call it
+
+</script>
+</body>
+</html>
