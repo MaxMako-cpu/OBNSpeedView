@@ -1498,19 +1498,59 @@ function yToPx(val,area){return area.y1-((val-0)/(state.yMax-0||1))*area.h;}
 function hexToRgb(hex){const h=hex.replace("#","");const n=parseInt(h.length===3?h.split("").map(c=>c+c).join(""):h,16);return{r:(n>>16)&255,g:(n>>8)&255,b:n&255};}
 function rgba(hex,a){const{r,g,b}=hexToRgb(hex);return`rgba(${r},${g},${b},${a})`;}
 
+function computeVisibleYMax(area) {
+  // Compute yMax from data visible in current viewport
+  if (!state.minuteTrack || !state.minuteTrack.length) return state.yMax;
+  let max = -Infinity;
+  for (const p of state.minuteTrack) {
+    if (p.epoch < state.viewX0 || p.epoch > state.viewX1) continue;
+    for (const k of ["ifr","u334","u333"]) {
+      const v = p[k];
+      if (v !== null && Number.isFinite(v) && state.visible[k] && v > max) max = v;
+    }
+  }
+  return Number.isFinite(max) && max > 0 ? max * 1.15 : state.yMax;
+}
+
 function drawGrid(area) {
   ctx.save();
+  // Use visible yMax so scale tracks zoom
+  const visYMax = computeVisibleYMax(area);
+  const step = visYMax > 6 ? Math.ceil(visYMax / 6) : (visYMax > 2 ? 1 : 0.5);
   ctx.strokeStyle="rgba(23,48,73,0.55)"; ctx.lineWidth=1;
-  const step=state.yMax>6?Math.ceil(state.yMax/6):(state.yMax>2?1:0.5);
   ctx.fillStyle="#6f8aa3"; ctx.font="10px 'JetBrains Mono',monospace";
   ctx.textAlign="right"; ctx.textBaseline="middle";
-  for(let v=0;v<=state.yMax;v+=step){const py=yToPx(v,area);ctx.beginPath();ctx.moveTo(area.x0,py);ctx.lineTo(area.x1,py);ctx.stroke();ctx.fillText(v.toFixed(step<1?1:0),area.x0-8,py);}
-  if(state.dayStartEpoch!==null){
-    ctx.textAlign="center"; ctx.textBaseline="top";
-    for(let h=0;h<24;h++){const ep=state.dayStartEpoch+h*3600;if(ep<state.viewX0-1||ep>state.viewX1+1)continue;const px=xToPx(ep,area);ctx.beginPath();ctx.moveTo(px,area.y0);ctx.lineTo(px,area.y1);ctx.stroke();ctx.fillText(pad2(h)+":00",px,area.y1+6);}
+  // Override yToPx for this frame using visYMax
+  const yToPxVis = v => area.y1 - ((v - 0) / (visYMax - 0 || 1)) * area.h;
+  for (let v = 0; v <= visYMax; v += step) {
+    const py = yToPxVis(v);
+    ctx.beginPath(); ctx.moveTo(area.x0, py); ctx.lineTo(area.x1, py); ctx.stroke();
+    ctx.fillText(v.toFixed(step < 1 ? 1 : 0), area.x0 - 8, py);
   }
-  ctx.save();ctx.translate(14,area.y0+area.h/2);ctx.rotate(-Math.PI/2);ctx.fillStyle="#6f8aa3";ctx.font="9.5px 'JetBrains Mono',monospace";ctx.textAlign="center";ctx.textBaseline="middle";ctx.fillText("SPEED OVER GROUND (KNOTS)",0,0);ctx.restore();
+  if (state.dayStartEpoch !== null) {
+    ctx.textAlign="center"; ctx.textBaseline="top";
+    for (let h = 0; h < 24; h++) {
+      const ep = state.dayStartEpoch + h * 3600;
+      if (ep < state.viewX0 - 1 || ep > state.viewX1 + 1) continue;
+      const px = xToPx(ep, area);
+      ctx.beginPath(); ctx.moveTo(px, area.y0); ctx.lineTo(px, area.y1); ctx.stroke();
+      ctx.fillText(pad2(h)+":00", px, area.y1 + 6);
+    }
+  }
+  ctx.save(); ctx.translate(14, area.y0 + area.h / 2); ctx.rotate(-Math.PI / 2);
+  ctx.fillStyle="#6f8aa3"; ctx.font="9.5px 'JetBrains Mono',monospace";
+  ctx.textAlign="center"; ctx.textBaseline="middle";
+  ctx.fillText("SPEED OVER GROUND (KNOTS)", 0, 0); ctx.restore();
   ctx.restore();
+  // Store visYMax so curves use the same scale
+  state._visYMax = visYMax;
+}
+
+// Override yToPx to use _visYMax when set (so curves match the Y axis)
+const _origYToPx = yToPx;
+function yToPx(val, area) {
+  const ym = (state._visYMax && state._visYMax > 0) ? state._visYMax : (state.yMax || 1);
+  return area.y1 - ((val - 0) / (ym - 0)) * area.h;
 }
 
 // ── Catmull-Rom spline stroke helper ─────────────────────────────────
@@ -1691,6 +1731,8 @@ function render(){
   if(!state.minuteTrack){chartEmpty.classList.remove("hidden");return;}
   chartEmpty.classList.add("hidden");
   const area=plotArea();
+  // Pre-compute visible yMax so both grid labels and curves use same scale
+  state._visYMax = computeVisibleYMax(area);
   ctx.save();ctx.beginPath();ctx.rect(area.x0,area.y0,area.w,area.h);ctx.clip();
   drawSavedRegions(area);
   drawLpAlertZones(area);
@@ -1834,6 +1876,67 @@ function updateReadout(hoverEpoch){
 }
 function setText(id,text){const el=document.getElementById(id);if(el)el.textContent=text;}
 function clearReadout(){roEls.time.textContent="--:--:--";roEls.date.textContent="";roEls.sogIfr.textContent="—";roEls.sog334.textContent="—";roEls.sog333.textContent="—";roEls.log.style.display="none";document.getElementById("ro-fix").style.display="none";}
+
+// ── Live readout on hover over right panel ────────────────────────────
+(function(){
+  const readoutEl = document.getElementById("readout");
+  if (!readoutEl) return;
+  let _liveReadoutActive = false;
+  let _liveReadoutTimer = null;
+
+  function showLiveReadout() {
+    if (!state.df || !state.df.length) return;
+    const row = state.df[state.df.length - 1];
+    if (!row) return;
+    _liveReadoutActive = true;
+    roEls.time.textContent = fmtHMS(row.epoch);
+    roEls.date.textContent = fmtDate(row.epoch) + "  ·  LIVE";
+    roEls.time.style.color = "var(--green)";
+    roEls.sogIfr.textContent = fmt(row["IFR SOG (knot)"]);
+    roEls.sog334.textContent = fmt(row["UHD334 SOG (knot)"]);
+    roEls.sog333.textContent = fmt(row["UHD333 SOG (knot)"]);
+    roEls.ifrEasting.textContent  = fmt(row["IFR Easting (Metre) (32615)"], 1);
+    roEls.ifrNorthing.textContent = fmt(row["IFR Northing (Metre) (32615)"], 1);
+    roEls.ifrCog.textContent      = fmt(row["IFR COG"], 1);
+    const s = id => document.getElementById(id);
+    const set = (id, v) => { const el = s(id); if (el) el.textContent = v; };
+    set("ro-334-depth",    fmt(row["UHD334 Depth (m)"], 2));
+    set("ro-334-alt",      fmt(row["UHD334 Altimeter (m)"], 2));
+    set("ro-334-cog",      fmt(row["UHD334 COG"], 1));
+    set("ro-334-easting",  fmt(row["UHD334 Easting (Metre) (32615)"], 1));
+    set("ro-334-northing", fmt(row["UHD334 Northing (Metre) (32615)"], 1));
+    set("ro-334-range",    fmt(row["TMS334_LP Range (m)"], 1));
+    set("ro-334-vdist",    fmt(row["TMS334_LP Vertical distance (m)"], 1));
+    set("ro-334-decl",     fmt(row["TMS334_LP Declination"], 1));
+    set("ro-333-depth",    fmt(row["UHD333 Depth (m)"], 2));
+    set("ro-333-alt",      fmt(row["UHD333 Altimeter (m)"], 2));
+    set("ro-333-cog",      fmt(row["UHD333 COG"], 1));
+    set("ro-333-easting",  fmt(row["UHD333 Easting (Metre) (32615)"], 1));
+    set("ro-333-northing", fmt(row["UHD333 Northing (Metre) (32615)"], 1));
+    set("ro-333-range",    fmt(row["TMS333_LP Range (m)"], 1));
+    set("ro-333-vdist",    fmt(row["TMS333_LP Vertical distance (m)"], 1));
+    set("ro-333-decl",     fmt(row["TMS333_LP Declination"], 1));
+  }
+
+  function stopLiveReadout() {
+    _liveReadoutActive = false;
+    roEls.time.style.color = "";
+    // Restore cursor readout if hoverEpoch is active, else clear
+    if (state.hoverEpoch !== null) updateReadout(state.hoverEpoch);
+    else clearReadout();
+  }
+
+  readoutEl.addEventListener("mouseenter", () => {
+    showLiveReadout();
+    // Refresh every second while hovering
+    _liveReadoutTimer = setInterval(() => { if (_liveReadoutActive) showLiveReadout(); }, 1000);
+  });
+
+  readoutEl.addEventListener("mouseleave", () => {
+    clearInterval(_liveReadoutTimer);
+    stopLiveReadout();
+  });
+})();
 
 /* ======================================================================
    Region management
