@@ -42,12 +42,22 @@ function freshBeaconState() {
   };
 }
 
+function loadEnabled(key) {
+  const v = localStorage.getItem("sv_drag_enabled_" + key);
+  return v === null ? true : v === "true";
+}
+
 const drag = {
   cd: parseFloat(localStorage.getItem("sv_drag_cd")) || 1.10,
   area: parseFloat(localStorage.getItem("sv_drag_area")) || 5.23,
   sogMin: Infinity,
   sogMax: -Infinity,
   lastSog: null,
+  // Per-beacon on/off — switched off when a TMS is on deck and its LP Range
+  // is known-corrupt, so it never gets ingested into that beacon's fit.
+  // Doesn't touch already-accumulated data — only gates future samples, so
+  // valid data collected before switching off stays in the fit.
+  enabled: { "333": loadEnabled("333"), "334": loadEnabled("334") },
   beacons: { "333": freshBeaconState(), "334": freshBeaconState() },
 };
 
@@ -107,6 +117,7 @@ export function ingestRow(row) {
   const epoch = row.epoch;
 
   for (const b of BEACONS) {
+    if (!drag.enabled[b.key]) continue;
     const range = row[b.rangeField];
     const vdist = row[b.vdistField];
     if (range === null || range === undefined || !Number.isFinite(range)) continue;
@@ -210,6 +221,9 @@ const chartWrap = document.getElementById("drag-chart-wrap");
 const canvas    = document.getElementById("drag-chart-canvas");
 const ctx       = canvas ? canvas.getContext("2d") : null;
 const tooltip   = document.getElementById("drag-tooltip");
+
+const toggle333 = document.getElementById("drag-toggle-333");
+const toggle334 = document.getElementById("drag-toggle-334");
 
 const roSog   = document.getElementById("drag-ro-sog");
 const roForce = document.getElementById("drag-ro-force");
@@ -391,10 +405,10 @@ function updateReadouts(sogOverride) {
 
   if (roSog) roSog.innerHTML = sog.toFixed(2) + '<span class="unit">kn</span>';
   if (roForce) roForce.innerHTML = (estimateForce(sog) / 1000).toFixed(2) + '<span class="unit">kN</span>';
-  if (roR333) roR333.innerHTML = fit333 ? Math.max(0, fit333.at(sog)).toFixed(0) + '<span class="unit">m</span>' : '—';
-  if (roR334) roR334.innerHTML = fit334 ? Math.max(0, fit334.at(sog)).toFixed(0) + '<span class="unit">m</span>' : '—';
-  if (sens333) sens333.textContent = fit333 ? fmtSlope(fit333.slopeAt(sog)) : "insufficient data";
-  if (sens334) sens334.textContent = fit334 ? fmtSlope(fit334.slopeAt(sog)) : "insufficient data";
+  if (roR333) roR333.innerHTML = !drag.enabled["333"] ? "OFF" : fit333 ? Math.max(0, fit333.at(sog)).toFixed(0) + '<span class="unit">m</span>' : '—';
+  if (roR334) roR334.innerHTML = !drag.enabled["334"] ? "OFF" : fit334 ? Math.max(0, fit334.at(sog)).toFixed(0) + '<span class="unit">m</span>' : '—';
+  if (sens333) sens333.textContent = !drag.enabled["333"] ? "beacon switched off" : fit333 ? fmtSlope(fit333.slopeAt(sog)) : "insufficient data";
+  if (sens334) sens334.textContent = !drag.enabled["334"] ? "beacon switched off" : fit334 ? fmtSlope(fit334.slopeAt(sog)) : "insufficient data";
   if (footerN) footerN.textContent = (drag.beacons["333"].n + drag.beacons["334"].n) + " observed samples this session";
 }
 function fmtSlope(perKt) {
@@ -402,13 +416,21 @@ function fmtSlope(perKt) {
   return (per01 >= 0 ? "+" : "") + per01.toFixed(1) + " m / +0.1kt";
 }
 
+function fmtCell(enabled, fit, v) {
+  if (!enabled) return "OFF";
+  return fit ? Math.max(0, fit.at(v)).toFixed(0) + " m" : "—";
+}
+
 function buildPredictionTable() {
   if (!predictTbody) return;
   predictTbody.innerHTML = "";
   const fit333 = computeFit("333");
   const fit334 = computeFit("334");
-  if (!fit333 && !fit334) {
-    predictTbody.innerHTML = '<tr><td colspan="3" style="text-align:center;color:var(--text-dim);padding:12px 4px;">Not enough speed variation yet — keep tracking to build a fit.</td></tr>';
+  if ((!fit333 && !fit334) || (!drag.enabled["333"] && !drag.enabled["334"])) {
+    const msg = (!drag.enabled["333"] && !drag.enabled["334"])
+      ? "Both beacons switched off — enable at least one to see a prediction."
+      : "Not enough speed variation yet — keep tracking to build a fit.";
+    predictTbody.innerHTML = `<tr><td colspan="3" style="text-align:center;color:var(--text-dim);padding:12px 4px;">${msg}</td></tr>`;
     return;
   }
   const currentSog = drag.lastSog !== null ? drag.lastSog : 0;
@@ -419,16 +441,16 @@ function buildPredictionTable() {
   const nowTr = document.createElement("tr");
   nowTr.className = "now-row";
   nowTr.innerHTML = `<td>${currentSog.toFixed(2)} kn</td>` +
-    `<td class="c333">${fit333 ? Math.max(0, fit333.at(currentSog)).toFixed(0) + " m" : "—"}</td>` +
-    `<td class="c334">${fit334 ? Math.max(0, fit334.at(currentSog)).toFixed(0) + " m" : "—"}</td>`;
+    `<td class="c333">${fmtCell(drag.enabled["333"], fit333, currentSog)}</td>` +
+    `<td class="c334">${fmtCell(drag.enabled["334"], fit334, currentSog)}</td>`;
   predictTbody.appendChild(nowTr);
 
   const startStep = Math.ceil(startFrom / PREDICT_STEP_KT) * PREDICT_STEP_KT;
   for (let v = Math.round(startStep * 10) / 10; v <= horizon + 1e-6; v = Math.round((v + PREDICT_STEP_KT) * 10) / 10) {
     const tr = document.createElement("tr");
     tr.innerHTML = `<td>${v.toFixed(1)} kn</td>` +
-      `<td class="c333">${fit333 ? Math.max(0, fit333.at(v)).toFixed(0) + " m" : "—"}</td>` +
-      `<td class="c334">${fit334 ? Math.max(0, fit334.at(v)).toFixed(0) + " m" : "—"}</td>`;
+      `<td class="c333">${fmtCell(drag.enabled["333"], fit333, v)}</td>` +
+      `<td class="c334">${fmtCell(drag.enabled["334"], fit334, v)}</td>`;
     predictTbody.appendChild(tr);
   }
 }
@@ -462,6 +484,21 @@ if (inArea) inArea.addEventListener("input", () => {
   const v = parseFloat(inArea.value);
   if (Number.isFinite(v) && v > 0) { drag.area = v; localStorage.setItem("sv_drag_area", String(v)); updateReadouts(hoverSog); }
 });
+
+// Sync checkbox UI to the persisted enabled state, and wire toggling —
+// switching off only gates future ingestion (see comment on drag.enabled),
+// so nothing is cleared here, just re-rendered to reflect the change.
+function wireBeaconToggle(el, key) {
+  if (!el) return;
+  el.checked = drag.enabled[key];
+  el.addEventListener("change", () => {
+    drag.enabled[key] = el.checked;
+    localStorage.setItem("sv_drag_enabled_" + key, String(el.checked));
+    if (panelOpen) refreshAll();
+  });
+}
+wireBeaconToggle(toggle333, "333");
+wireBeaconToggle(toggle334, "334");
 
 if (canvas) {
   canvas.addEventListener("mousemove", (e) => {

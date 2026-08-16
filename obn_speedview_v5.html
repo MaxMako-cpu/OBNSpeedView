@@ -375,8 +375,14 @@
           <div id="drag-tooltip" class="drag-tooltip"></div>
         </div>
         <div class="drag-legend-row">
-          <div class="drag-legend-item"><span class="drag-legend-swatch" style="background:var(--red);box-shadow:0 0 6px var(--red-glow);"></span>TMS333</div>
-          <div class="drag-legend-item"><span class="drag-legend-swatch" style="background:var(--green);box-shadow:0 0 6px var(--green-glow);"></span>TMS334</div>
+          <label class="drag-legend-item drag-legend-toggle" title="Untick when this TMS is on deck — its LP Range is corrupt while out of the water, so this stops it polluting the fit">
+            <input type="checkbox" id="drag-toggle-333" checked>
+            <span class="drag-legend-swatch" style="background:var(--red);box-shadow:0 0 6px var(--red-glow);"></span>TMS333
+          </label>
+          <label class="drag-legend-item drag-legend-toggle" title="Untick when this TMS is on deck — its LP Range is corrupt while out of the water, so this stops it polluting the fit">
+            <input type="checkbox" id="drag-toggle-334" checked>
+            <span class="drag-legend-swatch" style="background:var(--green);box-shadow:0 0 6px var(--green-glow);"></span>TMS334
+          </label>
           <div class="drag-legend-div"></div>
           <div class="drag-legend-item"><span class="drag-legend-line solid"></span>Observed fit</div>
           <div class="drag-legend-item"><span class="drag-legend-line dashed"></span>Predicted</div>
