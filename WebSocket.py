@@ -52,15 +52,29 @@ except ImportError:
     OPENPYXL_OK = False
 
 # ── config ────────────────────────────────────────────────────────────
-ARCHIVE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "speedview_archive")
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+
+ARCHIVE_DIR = os.path.join(SCRIPT_DIR, "speedview_archive")
 os.makedirs(ARCHIVE_DIR, exist_ok=True)
 
-NODE_FIX_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "node_fix_archive")
+NODE_FIX_DIR = os.path.join(SCRIPT_DIR, "node_fix_archive")
 os.makedirs(NODE_FIX_DIR, exist_ok=True)
 
 NODE_FIX_CSV_HEADER = "Timestamp,UHD,RL,ST,ID"
 
-HTML_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "obn_speedview_v5.html")
+HTML_FILE = os.path.join(SCRIPT_DIR, "obn_speedview_v5.html")
+
+# Static asset roots the HTTP server is allowed to serve from, and the
+# content-type each file extension gets. Only these two directories are
+# exposed — everything else still 404s, same as before.
+STATIC_DIRS = {
+    "js":  os.path.join(SCRIPT_DIR, "js"),
+    "css": os.path.join(SCRIPT_DIR, "css"),
+}
+STATIC_CONTENT_TYPES = {
+    ".js":  "application/javascript",
+    ".css": "text/css",
+}
 
 CSV_HEADER = (
     "TimeStamp (Utc),"
@@ -464,8 +478,40 @@ class SpeedViewHandler(http.server.BaseHTTPRequestHandler):
             self.send_header("Content-Length", str(len(data)))
             self.end_headers()
             self.wfile.write(data)
-        else:
-            self.send_error(404)
+            return
+
+        static_data = self._read_static_file(path)
+        if static_data is not None:
+            content, content_type = static_data
+            self.send_response(200)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Content-Length", str(len(content)))
+            self.end_headers()
+            self.wfile.write(content)
+            return
+
+        self.send_error(404)
+
+    def _read_static_file(self, path):
+        """Serve obn_speedview_v5's split JS/CSS modules from js/ and css/
+        next to the bridge script. Returns (bytes, content_type) or None."""
+        parts = path.lstrip("/").split("/", 1)
+        if len(parts) != 2:
+            return None
+        top, rest = parts
+        root = STATIC_DIRS.get(top)
+        if root is None:
+            return None
+        ext = os.path.splitext(rest)[1]
+        content_type = STATIC_CONTENT_TYPES.get(ext)
+        if content_type is None:
+            return None
+        # Resolve and confirm the path stays inside the static root (blocks "..")
+        full_path = os.path.abspath(os.path.join(root, rest))
+        if os.path.commonpath([full_path, root]) != root or not os.path.isfile(full_path):
+            return None
+        with open(full_path, "rb") as f:
+            return f.read(), content_type
 
     def log_message(self, format, *args):
         pass
