@@ -69,6 +69,8 @@
       <button class="tbtn success" id="btn-lp-live" title="Live LP Range monitor">LP LIVE</button>
       <button class="tbtn" id="btn-lp-decl">LP DECL ALERT</button>
       <div style="width:1px;height:22px;background:var(--grid);flex-shrink:0;margin:0 2px;"></div>
+      <button class="tbtn" id="btn-drag-analysis" title="Vessel speed vs LP Range correlation, live &amp; predicted">DRAG ANALYSIS</button>
+      <div style="width:1px;height:22px;background:var(--grid);flex-shrink:0;margin:0 2px;"></div>
       <button class="tbtn" id="btn-node-fixes">NODE FIXES</button>
       <div style="width:1px;height:22px;background:var(--grid);flex-shrink:0;margin:0 2px;"></div>
       <button class="tbtn" id="btn-scroll" title="Lock view — pan and zoom freely without auto-recenter">SCROLL</button>
@@ -240,6 +242,9 @@
     </div>
     <div class="beacon-grid" id="beacon-check-grid"></div>
 
+    <hr class="ro-hline" style="margin:10px 0;">
+    <label class="panel-check-row"><input type="checkbox" data-key="drag_analysis" checked> Drag Analysis (speed vs LP Range, TMS333 &amp; TMS334)</label>
+
     <div class="quick-row">
       <button id="report-select-all">Select all</button>
       <button id="report-select-none">Select none</button>
@@ -348,6 +353,80 @@
         color:#ff9a9a;background:#1a0e0e;border:1px solid #5c2626;border-radius:var(--radius);
         padding:7px 13px;cursor:pointer;">DISABLE</button>
       <button class="primary" id="lp-live-ok">ENABLE</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modal-drag-analysis">
+  <div class="modal drag-modal">
+    <div class="drag-header">
+      <div class="drag-header-mark"></div>
+      <div class="drag-header-title">DRAG ANALYSIS</div>
+      <div class="drag-header-sub">Speed / LP Range correlation &middot; TMS333 &amp; TMS334</div>
+      <div class="drag-live-chip"><span class="dot"></span>LIVE</div>
+      <div class="toolbar-spacer"></div>
+      <button id="drag-panel-close">CLOSE</button>
+    </div>
+
+    <div class="drag-body">
+      <div class="drag-chart-col">
+        <div id="drag-chart-wrap">
+          <canvas id="drag-chart-canvas"></canvas>
+          <div id="drag-tooltip" class="drag-tooltip"></div>
+        </div>
+        <div class="drag-legend-row">
+          <div class="drag-legend-item"><span class="drag-legend-swatch" style="background:var(--red);box-shadow:0 0 6px var(--red-glow);"></span>TMS333</div>
+          <div class="drag-legend-item"><span class="drag-legend-swatch" style="background:var(--green);box-shadow:0 0 6px var(--green-glow);"></span>TMS334</div>
+          <div class="drag-legend-div"></div>
+          <div class="drag-legend-item"><span class="drag-legend-line solid"></span>Observed fit</div>
+          <div class="drag-legend-item"><span class="drag-legend-line dashed"></span>Predicted</div>
+          <div class="drag-legend-div"></div>
+          <div class="drag-legend-item"><span class="drag-legend-swatch" style="background:var(--amber);box-shadow:0 0 6px var(--amber-glow);"></span>Current speed</div>
+        </div>
+      </div>
+
+      <div class="drag-sidebar">
+        <div class="drag-card">
+          <div class="drag-card-title">Live Readout</div>
+          <div class="drag-readout-grid">
+            <div class="drag-ro-item accent-amber"><div class="name">Vessel SOG</div><div class="val" id="drag-ro-sog">&mdash;<span class="unit">kn</span></div></div>
+            <div class="drag-ro-item accent-amber"><div class="name">Est. drag force</div><div class="val" id="drag-ro-force">&mdash;<span class="unit">kN</span></div></div>
+            <div class="drag-ro-item accent-333"><div class="name">TMS333 LP Range</div><div class="val" id="drag-ro-r333">&mdash;<span class="unit">m</span></div></div>
+            <div class="drag-ro-item accent-334"><div class="name">TMS334 LP Range</div><div class="val" id="drag-ro-r334">&mdash;<span class="unit">m</span></div></div>
+          </div>
+          <div class="drag-sens-row"><div class="lbl"><span class="dot" style="background:var(--red);"></span>333 sensitivity</div><div class="figure" id="drag-sens-333">&mdash;</div></div>
+          <div class="drag-sens-row"><div class="lbl"><span class="dot" style="background:var(--green);"></span>334 sensitivity</div><div class="figure" id="drag-sens-334">&mdash;</div></div>
+        </div>
+
+        <div class="drag-card">
+          <div class="drag-card-title">Hydrodynamic Force Inputs</div>
+          <div class="drag-input-row">
+            <label>Drag coeff. (Cd)<span class="hint">round TMS, cross-flow est.</span></label>
+            <input type="number" id="drag-in-cd" value="1.10" step="0.05" min="0.1" max="3">
+          </div>
+          <div class="drag-input-row">
+            <label>Frontal area (A)<span class="hint">2263 &times; 2313mm side profile</span></label>
+            <input type="number" id="drag-in-area" value="5.23" step="0.05" min="0.1" max="50">
+          </div>
+          <div class="drag-fixed-const"><span>Water density (&rho;)</span><span>1025 kg/m&sup3; &middot; fixed</span></div>
+          <div class="drag-formula">F&nbsp;=&nbsp;&frac12;&middot;&rho;&middot;Cd&middot;A&middot;SOG&sup2;</div>
+        </div>
+
+        <div class="drag-card drag-predict-card">
+          <div class="drag-card-title">Prediction &mdash; +0.1kt steps</div>
+          <div class="drag-predict-scroll">
+            <table id="drag-predict-table">
+              <thead><tr><th>SOG</th><th>TMS333</th><th>TMS334</th></tr></thead>
+              <tbody id="drag-predict-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="drag-footer">
+      <span>Fit: 2nd-order least-squares on this session's observed samples &middot; refits continuously as new data arrives</span>
+      <span id="drag-footer-n">&mdash;</span>
     </div>
   </div>
 </div>

@@ -5,6 +5,7 @@ import { state } from './state.js';
 import { safeFloat, parseTsToEpoch, dayStartOf } from './utils.js';
 import { NUMERIC_FIELDS } from './constants.js';
 import { updateLpAlertButton } from './alerts.js';
+import { rebuildFromRows as rebuildDragAnalysis } from './drag-analysis.js';
 
 // Papa (PapaParse) is loaded globally via <script> from CDN.
 /* global Papa */
@@ -82,4 +83,5 @@ export function applySpeedData(rows) {
   la.active=false;
   for(const ch of[la.range333,la.range334,la.decl333,la.decl334])ch.zones=[];
   updateLpAlertButton();
+  rebuildDragAnalysis(rows);
 }

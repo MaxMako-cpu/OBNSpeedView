@@ -31,9 +31,11 @@ import queue
 import tkinter as tk
 import datetime
 import time
+import math
 import asyncio
 import json
 import logging
+from collections import deque
 
 # Suppress noisy websockets connection errors (EOFError, InvalidMessage)
 # These happen when browsers or port scanners probe the WS port — harmless
@@ -87,6 +89,21 @@ CSV_HEADER = (
     "UHD334 Depth (m),UHD334 Altimeter (m),UHD334 SOG (knot),UHD334 COG,"
     "TMS334_LP Range (m),TMS334_LP Vertical distance (m),TMS334_LP Declination"
 )
+
+# ── TMS horizontal offset / velocity (derived, no new telemetry) ───────
+# horizontal_offset = sqrt(range^2 - vdist^2), smoothed over a small
+# moving-average window (sample-count based, not time based) before being
+# differentiated into a velocity. A gap between valid samples larger than
+# TMS_MAX_GAP_SEC (beacon fix loss / dropout) resets the smoothing window
+# and suppresses one velocity sample, so a stale reading never gets
+# diffed against a fresh one across the gap.
+TMS_FILTER_WINDOW = 5     # samples
+TMS_MAX_GAP_SEC    = 5.0  # seconds
+
+_tms_state = {
+    "TMS333": {"window": deque(maxlen=TMS_FILTER_WINDOW), "last_epoch": None, "last_filtered": None},
+    "TMS334": {"window": deque(maxlen=TMS_FILTER_WINDOW), "last_epoch": None, "last_filtered": None},
+}
 
 # ── shared state ──────────────────────────────────────────────────────
 clients: set = set()
@@ -420,6 +437,77 @@ def parse_udp_to_csv(raw: str):
     except (ValueError, IndexError):
         return None
 
+# ── TMS horizontal offset / velocity derivation ─────────────────────────
+def _tms_horizontal_offset(lp_range: float, lp_vdist: float) -> float:
+    """sqrt(range^2 - vdist^2), clamped to 0 — a marginally-negative value
+    under the sqrt is sample noise on a near-vertical geometry, not an
+    invalid reading."""
+    sq = lp_range * lp_range - lp_vdist * lp_vdist
+    return math.sqrt(sq) if sq > 0 else 0.0
+
+def compute_tms_derived(raw_line: str, ts_epoch: float) -> dict:
+    """
+    Derive horizontal offset (m) and velocity (kn) for each towed TMS unit
+    (333/334) from the existing LP Range / LP Vertical Distance fields —
+    same raw UDP line parse_udp_to_csv already reads, no new telemetry.
+    Values are None for a beacon whose fix is currently unavailable/invalid.
+    """
+    line = raw_line.strip()
+    if "*" in line:
+        line = line[:line.rfind("*")]
+    parts = line.split(",")
+    if len(parts) < 22:
+        return {}
+
+    def safe_float(v):
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            return None
+
+    # Same field positions parse_udp_to_csv uses:
+    #   TMS333 LP Range = parts[8],  VDist = parts[10]
+    #   TMS334 LP Range = parts[16], VDist = parts[17]
+    sources = {
+        "TMS333": (safe_float(parts[8]),  safe_float(parts[10])),
+        "TMS334": (safe_float(parts[16]), safe_float(parts[17])),
+    }
+
+    out = {}
+    for label, (lp_range, lp_vdist) in sources.items():
+        prefix = label.lower()  # "tms333" / "tms334"
+        st = _tms_state[label]
+
+        if lp_range is None or lp_vdist is None:
+            out[f"{prefix}_horizontal_offset_m"] = None
+            out[f"{prefix}_velocity_kn"] = None
+            continue
+
+        # Dropout / large gap since the last valid sample — reset the
+        # smoothing window so stale pre-gap samples don't get averaged
+        # together with fresh post-gap ones.
+        if st["last_epoch"] is not None and (ts_epoch - st["last_epoch"]) > TMS_MAX_GAP_SEC:
+            st["window"].clear()
+
+        raw_offset = _tms_horizontal_offset(lp_range, lp_vdist)
+        st["window"].append(raw_offset)
+        filtered = sum(st["window"]) / len(st["window"])
+
+        velocity_kn = None
+        if st["last_epoch"] is not None and st["last_filtered"] is not None:
+            dt = ts_epoch - st["last_epoch"]
+            if 0 < dt <= TMS_MAX_GAP_SEC:
+                velocity_mps = (filtered - st["last_filtered"]) / dt
+                velocity_kn = velocity_mps * 1.9438444924  # m/s -> knots
+
+        st["last_epoch"]    = ts_epoch
+        st["last_filtered"] = filtered
+
+        out[f"{prefix}_horizontal_offset_m"] = round(filtered, 3)
+        out[f"{prefix}_velocity_kn"] = round(velocity_kn, 3) if velocity_kn is not None else None
+
+    return out
+
 # ── UDP Listener ──────────────────────────────────────────────────────
 class UdpListener:
     def __init__(self, port, on_data, on_status):
@@ -603,8 +691,10 @@ async def broadcaster():
         # ── main speed data ──
         while not msg_queue.empty():
             try:
-                row = msg_queue.get_nowait()
-                msg = json.dumps({"type": "live", "row": row})
+                csv_row, tms_derived = msg_queue.get_nowait()
+                payload = {"type": "live", "row": csv_row}
+                payload.update(tms_derived)
+                msg = json.dumps(payload)
                 for ws in list(clients):
                     try:
                         await ws.send(msg)
@@ -645,7 +735,8 @@ def on_udp_data(text: str):
         stats["last_rx"]   = time.time()
         stats["last_row"]  = csv_row[:90] + "…"
         save_row(csv_row)
-        msg_queue.put(csv_row)
+        tms_derived = compute_tms_derived(text, time.time())
+        msg_queue.put((csv_row, tms_derived))
 
 def on_udp_status(msg: str, level: str):
     if level == "error":

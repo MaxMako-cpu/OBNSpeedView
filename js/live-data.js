@@ -13,6 +13,7 @@ import { checkLpLive } from './lp-live.js';
 import { getUserPanned, setUserPanned, isScrollLocked } from './pan-zoom.js';
 import { getWs, isLiveMode, isInArchiveView, setInArchiveView, _showAutoUpdate, _hideAutoUpdate, _startAutoLogTimer, _stopAutoLogTimer, switchToLive } from './websocket.js';
 import { clearReadout } from './readout.js';
+import { ingestRow as ingestDragRow, reset as resetDragAnalysis } from './drag-analysis.js';
 
 const btnUpdateLog = document.getElementById("btn-update-log");
 const archiveSelect  = document.getElementById("archive-select");
@@ -141,6 +142,7 @@ export function handleLiveRow(csvRow) {
     la.active = false;
     for (const ch of [la.range333, la.range334, la.decl333, la.decl334]) ch.zones = [];
     updateLpAlertButton();
+    resetDragAnalysis();
     showToast("UTC midnight — new day started");
     // Auto log refresh for new day
     if (isLiveMode() && !isInArchiveView()) {
@@ -196,6 +198,9 @@ export function handleLiveRow(csvRow) {
 
   // LP Live monitor check
   checkLpLive(row);
+
+  // Drag Analysis panel — accumulate speed/LP-range correlation
+  ingestDragRow(row);
 
   // auto-scroll only if user hasn't manually panned the view
   if (!getUserPanned()) {
