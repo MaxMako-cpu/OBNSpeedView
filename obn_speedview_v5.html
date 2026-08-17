@@ -362,73 +362,113 @@
     <div class="drag-header">
       <div class="drag-header-mark"></div>
       <div class="drag-header-title">DRAG ANALYSIS</div>
-      <div class="drag-header-sub">Speed / LP Range correlation &middot; TMS333 &amp; TMS334</div>
+      <div class="drag-header-sub">Speed &middot; LP Range &middot; Drag Force, per TMS</div>
       <div class="drag-live-chip"><span class="dot"></span>LIVE</div>
       <div class="toolbar-spacer"></div>
       <button id="drag-panel-close">CLOSE</button>
     </div>
 
-    <div class="drag-body">
-      <div class="drag-chart-col">
-        <div id="drag-chart-wrap">
-          <canvas id="drag-chart-canvas"></canvas>
-          <div id="drag-tooltip" class="drag-tooltip"></div>
+    <div class="drag-key-row">
+      <span class="drag-key-title">LP RANGE:</span>
+      <div class="drag-key-item"><span class="drag-key-swatch" style="background:var(--green);"></span>0&ndash;500m &middot; SAFE</div>
+      <div class="drag-key-item"><span class="drag-key-swatch" style="background:var(--amber);"></span>500&ndash;699m &middot; CAUTION</div>
+      <div class="drag-key-item"><span class="drag-key-swatch" style="background:var(--red);"></span>700m+ &middot; WARNING</div>
+    </div>
+
+    <div class="drag-groups">
+      <div class="drag-tms-group t333">
+        <div class="drag-tg-head">
+          <span class="drag-tg-dot"></span>
+          <h3>TMS333</h3>
+          <div class="toolbar-spacer"></div>
+          <label class="drag-toggle-switch" title="Untick when this TMS is on deck — its LP Range is corrupt while out of the water">
+            <input type="checkbox" id="drag-toggle-333" checked><span class="drag-toggle-track"></span><span class="drag-toggle-thumb"></span>
+          </label>
         </div>
-        <div class="drag-legend-row">
-          <label class="drag-legend-item drag-legend-toggle" title="Untick when this TMS is on deck — its LP Range is corrupt while out of the water, so this stops it polluting the history">
-            <input type="checkbox" id="drag-toggle-333" checked>
-            <span class="drag-legend-swatch" style="background:var(--red);box-shadow:0 0 6px var(--red-glow);"></span>TMS333
-          </label>
-          <label class="drag-legend-item drag-legend-toggle" title="Untick when this TMS is on deck — its LP Range is corrupt while out of the water, so this stops it polluting the history">
-            <input type="checkbox" id="drag-toggle-334" checked>
-            <span class="drag-legend-swatch" style="background:var(--green);box-shadow:0 0 6px var(--green-glow);"></span>TMS334
-          </label>
-          <div class="drag-legend-div"></div>
-          <div class="drag-legend-item" title="Dot size = how many samples back that average — bigger dot, more confidence"><span class="drag-legend-line solid"></span>Measured history</div>
-          <div class="drag-legend-div"></div>
-          <div class="drag-legend-item"><span class="drag-legend-swatch" style="background:var(--amber);box-shadow:0 0 6px var(--amber-glow);"></span>Current speed</div>
+        <div class="drag-bar-row">
+          <div class="drag-bar-col">
+            <div class="drag-bar-value" id="drag-333-speed-val">&mdash;</div>
+            <div class="drag-bar-status">&nbsp;</div>
+            <div class="drag-bar-track"><div class="drag-bar-fill drag-bar-fill-speed" id="drag-333-speed-fill"></div></div>
+            <div class="drag-bar-label">Speed</div>
+            <div class="drag-bar-note">vessel-wide</div>
+          </div>
+          <div class="drag-bar-col">
+            <div class="drag-bar-value" id="drag-333-range-val">&mdash;</div>
+            <div class="drag-bar-status" id="drag-333-range-status">&nbsp;</div>
+            <div class="drag-bar-track">
+              <div class="drag-bar-threshold" style="bottom:70%;" data-label="700"></div>
+              <div class="drag-bar-threshold" style="bottom:50%;" data-label="500"></div>
+              <div class="drag-bar-fill" id="drag-333-range-fill"></div>
+            </div>
+            <div class="drag-bar-label">LP Range</div>
+            <div class="drag-bar-note">&nbsp;</div>
+          </div>
+          <div class="drag-bar-col">
+            <div class="drag-bar-value" id="drag-333-force-val">&mdash;</div>
+            <div class="drag-bar-status">&nbsp;</div>
+            <div class="drag-bar-track"><div class="drag-bar-fill drag-bar-fill-force" id="drag-333-force-fill"></div></div>
+            <div class="drag-bar-label">Force</div>
+            <div class="drag-bar-note">this TMS</div>
+          </div>
         </div>
       </div>
 
-      <div class="drag-sidebar">
-        <div class="drag-card">
-          <div class="drag-card-title">Live Readout</div>
-          <div class="drag-readout-grid">
-            <div class="drag-ro-item accent-amber"><div class="name">Vessel SOG</div><div class="val" id="drag-ro-sog">&mdash;<span class="unit">kn</span></div></div>
-            <div class="drag-ro-item accent-amber"><div class="name">Est. drag force</div><div class="val" id="drag-ro-force">&mdash;<span class="unit">kN</span></div></div>
-            <div class="drag-ro-item accent-333"><div class="name">TMS333 LP Range</div><div class="val" id="drag-ro-r333">&mdash;<span class="unit">m</span></div></div>
-            <div class="drag-ro-item accent-334"><div class="name">TMS334 LP Range</div><div class="val" id="drag-ro-r334">&mdash;<span class="unit">m</span></div></div>
-          </div>
+      <div class="drag-tms-group t334">
+        <div class="drag-tg-head">
+          <span class="drag-tg-dot"></span>
+          <h3>TMS334</h3>
+          <div class="toolbar-spacer"></div>
+          <label class="drag-toggle-switch" title="Untick when this TMS is on deck — its LP Range is corrupt while out of the water">
+            <input type="checkbox" id="drag-toggle-334" checked><span class="drag-toggle-track"></span><span class="drag-toggle-thumb"></span>
+          </label>
         </div>
-
-        <div class="drag-card">
-          <div class="drag-card-title">Hydrodynamic Force Inputs</div>
-          <div class="drag-input-row">
-            <label>Drag coeff. (Cd)<span class="hint">round TMS, cross-flow est.</span></label>
-            <input type="number" id="drag-in-cd" value="1.10" step="0.05" min="0.1" max="3">
+        <div class="drag-bar-row">
+          <div class="drag-bar-col">
+            <div class="drag-bar-value" id="drag-334-speed-val">&mdash;</div>
+            <div class="drag-bar-status">&nbsp;</div>
+            <div class="drag-bar-track"><div class="drag-bar-fill drag-bar-fill-speed" id="drag-334-speed-fill"></div></div>
+            <div class="drag-bar-label">Speed</div>
+            <div class="drag-bar-note">vessel-wide</div>
           </div>
-          <div class="drag-input-row">
-            <label>Frontal area (A)<span class="hint">2263 &times; 2313mm side profile</span></label>
-            <input type="number" id="drag-in-area" value="5.23" step="0.05" min="0.1" max="50">
+          <div class="drag-bar-col">
+            <div class="drag-bar-value" id="drag-334-range-val">&mdash;</div>
+            <div class="drag-bar-status" id="drag-334-range-status">&nbsp;</div>
+            <div class="drag-bar-track">
+              <div class="drag-bar-threshold" style="bottom:70%;" data-label="700"></div>
+              <div class="drag-bar-threshold" style="bottom:50%;" data-label="500"></div>
+              <div class="drag-bar-fill" id="drag-334-range-fill"></div>
+            </div>
+            <div class="drag-bar-label">LP Range</div>
+            <div class="drag-bar-note">&nbsp;</div>
           </div>
-          <div class="drag-fixed-const"><span>Water density (&rho;)</span><span>1025 kg/m&sup3; &middot; fixed</span></div>
-          <div class="drag-formula">F&nbsp;=&nbsp;&frac12;&middot;&rho;&middot;Cd&middot;A&middot;SOG&sup2;</div>
-        </div>
-
-        <div class="drag-card drag-predict-card">
-          <div class="drag-card-title">History &mdash; LP Range by speed</div>
-          <div class="drag-predict-scroll">
-            <table id="drag-history-table">
-              <thead><tr><th>SOG</th><th>333</th><th>334</th></tr></thead>
-              <tbody id="drag-history-tbody"></tbody>
-            </table>
+          <div class="drag-bar-col">
+            <div class="drag-bar-value" id="drag-334-force-val">&mdash;</div>
+            <div class="drag-bar-status">&nbsp;</div>
+            <div class="drag-bar-track"><div class="drag-bar-fill drag-bar-fill-force" id="drag-334-force-fill"></div></div>
+            <div class="drag-bar-label">Force</div>
+            <div class="drag-bar-note">this TMS</div>
           </div>
         </div>
       </div>
     </div>
 
+    <div class="drag-adv-toggle-row">
+      <button id="drag-adv-toggle"><span class="chev">&#9656;</span> Advanced: drag force input</button>
+      <div id="drag-adv-body">
+        <div class="drag-card" style="max-width:420px;">
+          <div class="drag-card-title">Drag Force Input</div>
+          <div class="drag-input-row">
+            <label>Submerged weight<span class="hint">3000kg in air, duplex steel &mdash; est. accounts for buoyancy; TMS is a frame, not solid, so adjust if you know the real figure</span></label>
+            <input type="number" id="drag-in-weight" value="2606" step="10" min="1" max="20000">
+          </div>
+          <div class="drag-formula">F&nbsp;=&nbsp;Weight&nbsp;&times;&nbsp;(LP&nbsp;Range&nbsp;/&nbsp;LP&nbsp;Vert.&nbsp;Distance) &mdash; computed separately per TMS</div>
+        </div>
+      </div>
+    </div>
+
     <div class="drag-footer">
-      <span>Every value is a real measured average at that speed &middot; nothing modeled or projected &middot; &ldquo;m&middot;n&rdquo; = average range, sample count</span>
+      <span>Live values only &middot; no history, no prediction &mdash; just what's being measured right now</span>
       <span id="drag-footer-n">&mdash;</span>
     </div>
   </div>

@@ -116,11 +116,22 @@ function drawDragAnalysisPanel(cx,w,h,rows){
   cx.fillStyle="#4b5563";cx.font="7px 'JetBrains Mono',monospace";cx.textAlign="center";cx.textBaseline="top";
   cx.fillText("VESSEL SOG (KN)",padL+plotW/2,padT+plotH+16);
 
-  const{cd,area,rho}=getForceInputs();
-  const peakSog=sogMax/1.15;
-  const forceKnAt=(sog)=>{const vms=sog*0.514444;return(0.5*rho*cd*area*vms*vms/1000);};
+  // Force is a per-beacon geometric estimate (submerged weight x Range/VDist
+  // at that beacon's own peak Range in this region) — see
+  // js/drag-analysis.js's module doc-comment for the derivation. Shown per
+  // beacon since, unlike a speed-based estimate, this one can genuinely
+  // differ between TMS333 and TMS334.
+  const{submergedWeightKg}=getForceInputs();
+  const weightN=submergedWeightKg*9.81;
+  const forceParts=[];
+  for(const{bd,points}of results){
+    let peak=null;
+    for(const p of points){if(p.vdist!==null&&p.vdist>=0.5&&(peak===null||p.y>peak.y))peak=p;}
+    if(peak){const forceKn=weightN*(peak.y/peak.vdist)/1000;forceParts.push(`${bd.label}: ${forceKn.toFixed(1)}kN`);}
+  }
   cx.fillStyle="#6b7280";cx.font="6.5px 'JetBrains Mono',monospace";cx.textAlign="left";cx.textBaseline="top";
-  cx.fillText(`Est. drag force @ ${peakSog.toFixed(1)}kt peak SOG: ${forceKnAt(peakSog).toFixed(1)}kN  (Cd=${cd.toFixed(2)}, A=${area.toFixed(2)}m², ρ=${rho}kg/m³ — approximate)`,padL,h-9);
+  const forceLine=forceParts.length?`Est. peak drag force — ${forceParts.join(", ")}  (submerged weight=${submergedWeightKg}kg — approximate)`:`Est. drag force unavailable — no valid Vertical Distance readings in this window`;
+  cx.fillText(forceLine,padL,h-9);
 }
 
 async function generateRegionReportPdf(selectedPanels){
