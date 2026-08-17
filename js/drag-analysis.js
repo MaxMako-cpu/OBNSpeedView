@@ -47,10 +47,19 @@
      a selected time window is shown. beaconHistory() below is the live
      analogue for the on-screen session-history charts, fed incrementally
      from ingestPoint() as rows arrive rather than recomputed from scratch.
+   - The speed-bucketed charts go static whenever the vessel is holding a
+     steady speed for a while (very common mid-line) — every sample lands
+     in the same one or two 0.1kt buckets, so the running average barely
+     moves. Each chart also gets a small "recent trend" strip plotting the
+     same smoothed metric against session TIME instead of speed, over the
+     last HISTORY_TIME_WINDOW_SEC — real telemetry always moves on that
+     axis, so it stays visibly live even when speed doesn't change.
    ====================================================================== */
 const DRAG_FILTER_WINDOW = 5;     // samples — smooths raw noise before display
 const DRAG_MAX_GAP_SEC   = 5.0;   // seconds — dropout gap resets the smoothing windows
-const DRAG_BUCKET_KT     = 0.1;   // speed-bucket width — used by historyForBeacon (report.js) and the live session-history charts
+const DRAG_BUCKET_KT     = 0.1;   // speed-bucket width — used by historyForBeacon (report.js) and the speed-bucketed session-history charts
+const HISTORY_TIME_WINDOW_SEC = 900; // 15 min — recent-trend strip window
+const HISTORY_TIME_MAX_POINTS = 3000; // hard cap alongside the time trim, in case telemetry arrives faster than expected
 const G                  = 9.81;  // m/s^2
 
 // Bar scale ceilings (independent per metric — these have unrelated units)
@@ -83,6 +92,7 @@ function freshBeaconState() {
     lastFilteredVDist: null, // most recent real (smoothed) LP Vertical Distance
     n: 0,                     // raw sample count ever seen this session, shown in the footer as a trust signal
     historyBuckets: new Map(), // speed-bucket idx -> {rangeSum,count,forceSum,forceN} — live session history, see beaconHistory()
+    timeSeries: [],             // [{epoch,range,force}] trimmed to HISTORY_TIME_WINDOW_SEC — feeds the recent-trend strip, see beaconTimeSeries()
   };
 }
 
@@ -101,6 +111,7 @@ const DEFAULT_SUBMERGED_WEIGHT_KG = 2606;
 const drag = {
   submergedWeightKg: parseFloat(localStorage.getItem("sv_drag_weight_kg")) || DEFAULT_SUBMERGED_WEIGHT_KG,
   lastSog: null,
+  lastEpoch: null, // most recent ingested row's epoch — "now" for the recent-trend strip's time axis
   // Per-beacon on/off — switched off when a TMS is on deck and its LP Range
   // is known-corrupt, so it never gets ingested. Doesn't touch the last
   // good reading already shown — only gates future samples.
@@ -110,6 +121,7 @@ const drag = {
 
 function resetAll() {
   drag.lastSog = null;
+  drag.lastEpoch = null;
   drag.beacons["333"] = freshBeaconState();
   drag.beacons["334"] = freshBeaconState();
 }
@@ -134,16 +146,29 @@ function ingestPoint(key, lpRange, lpVDist, epoch, sog) {
   b.lastEpoch = epoch;
   b.n += 1;
 
-  // Feed the live session-history buckets off the same smoothed values the
-  // bars use — same speed bucketing historyForBeacon() uses for the PDF.
+  const forceN = estimateForce(b.lastFilteredRange, b.lastFilteredVDist);
+  const forceKn = forceN !== null ? forceN / 1000 : null;
+
+  // Recent-trend strip — plain time series of the same smoothed values,
+  // independent of speed. Always shows movement even when vessel speed
+  // itself is holding steady (see beaconTimeSeries()).
+  if (Number.isFinite(epoch)) {
+    b.timeSeries.push({ epoch, range: b.lastFilteredRange, force: forceKn });
+    while (b.timeSeries.length > 2 &&
+           (epoch - b.timeSeries[0].epoch > HISTORY_TIME_WINDOW_SEC || b.timeSeries.length > HISTORY_TIME_MAX_POINTS)) {
+      b.timeSeries.shift();
+    }
+  }
+
+  // Speed-bucketed session history — same speed bucketing historyForBeacon()
+  // uses for the PDF. See beaconHistory().
   if (Number.isFinite(sog) && sog >= 0) {
     const idx = Math.round(sog / DRAG_BUCKET_KT);
     let bucket = b.historyBuckets.get(idx);
     if (!bucket) { bucket = { rangeSum: 0, count: 0, forceSum: 0, forceN: 0 }; b.historyBuckets.set(idx, bucket); }
     bucket.rangeSum += b.lastFilteredRange;
     bucket.count += 1;
-    const forceN = estimateForce(b.lastFilteredRange, b.lastFilteredVDist);
-    if (forceN !== null) { bucket.forceSum += forceN / 1000; bucket.forceN += 1; }
+    if (forceKn !== null) { bucket.forceSum += forceKn; bucket.forceN += 1; }
   }
 }
 
@@ -159,6 +184,7 @@ export function ingestRow(row) {
   if (!row) return;
   const sog = row["IFR SOG (knot)"];
   if (sog !== null && sog !== undefined && Number.isFinite(sog)) drag.lastSog = sog;
+  if (Number.isFinite(row.epoch)) drag.lastEpoch = row.epoch;
 
   for (const b of BEACONS) {
     if (!drag.enabled[b.key]) continue;
@@ -247,6 +273,14 @@ function beaconHistory(key) {
   return pts;
 }
 
+// Live recent-trend samples for one beacon — chronological array of
+// {epoch, range, force}, already trimmed to HISTORY_TIME_WINDOW_SEC by
+// ingestPoint(). Plotted against time (not speed) so the strip stays
+// visibly live even during a steady-speed stretch — see module doc-comment.
+function beaconTimeSeries(key) {
+  return drag.beacons[key].timeSeries;
+}
+
 export function beaconConfig() {
   return BEACONS.map((b) => ({ key: b.key, label: b.label, color: b.color }));
 }
@@ -281,6 +315,10 @@ const canvasRange = document.getElementById("drag-chart-range");
 const canvasForce = document.getElementById("drag-chart-force");
 const ctxRange    = canvasRange ? canvasRange.getContext("2d") : null;
 const ctxForce    = canvasForce ? canvasForce.getContext("2d") : null;
+const canvasRangeTrend = document.getElementById("drag-chart-range-trend");
+const canvasForceTrend = document.getElementById("drag-chart-force-trend");
+const ctxRangeTrend    = canvasRangeTrend ? canvasRangeTrend.getContext("2d") : null;
+const ctxForceTrend    = canvasForceTrend ? canvasForceTrend.getContext("2d") : null;
 
 let panelOpen = false;
 
@@ -419,17 +457,71 @@ function drawHistoryChart(canvas, ctx, series) {
   ctx.restore();
 }
 
+// series: [{ color, points: [{epoch, y}] }, ...] — draws the last
+// HISTORY_TIME_WINDOW_SEC of real smoothed samples per beacon, chronological,
+// no bucketing. This is what stays visibly live when speed itself doesn't move.
+function drawTrendChart(canvas, ctx, series, nowEpoch) {
+  if (!canvas || !ctx) return;
+  const { w, h } = resizeChartCanvas(canvas);
+  if (w < 10 || h < 10) return;
+  ctx.clearRect(0, 0, w, h);
+  if (nowEpoch === null) return;
+
+  const allPts = series.flatMap((s) => s.points);
+  let yMax = 10;
+  for (const p of allPts) if (p.y > yMax) yMax = p.y;
+  yMax *= 1.15;
+
+  const x0 = 6, y0 = 6, x1 = w - 6, y1 = h - 15;
+  const pw = Math.max(1, x1 - x0), ph = Math.max(1, y1 - y0);
+  const tMin = nowEpoch - HISTORY_TIME_WINDOW_SEC;
+  const xToPx = (epoch) => x0 + ((epoch - tMin) / HISTORY_TIME_WINDOW_SEC) * pw;
+  const yToPx = (y) => y1 - (y / yMax) * ph;
+
+  ctx.save();
+  ctx.strokeStyle = "rgba(23,48,73,0.6)";
+  ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(x0, y1); ctx.lineTo(x1, y1); ctx.stroke();
+  ctx.fillStyle = "#3d5168";
+  ctx.font = CHART_FONT;
+  ctx.textBaseline = "top";
+  ctx.textAlign = "left";
+  ctx.fillText(`-${Math.round(HISTORY_TIME_WINDOW_SEC / 60)}m`, x0, y1 + 3);
+  ctx.textAlign = "right";
+  ctx.fillText("now", x1, y1 + 3);
+  ctx.restore();
+
+  ctx.save();
+  ctx.beginPath(); ctx.rect(x0, y0, pw, ph); ctx.clip();
+  for (const s of series) {
+    if (s.points.length < 2) continue;
+    ctx.save();
+    ctx.strokeStyle = s.color; ctx.lineWidth = 1.6; ctx.lineJoin = "round";
+    ctx.beginPath();
+    s.points.forEach((p, i) => { const px = xToPx(p.epoch), py = yToPx(p.y); if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py); });
+    ctx.stroke();
+    ctx.restore();
+  }
+  ctx.restore();
+}
+
 function updateHistoryCharts() {
   if (!panelOpen) return;
-  const rangeSeries = [], forceSeries = [];
+  const rangeSeries = [], forceSeries = [], rangeTrend = [], forceTrend = [];
   for (const b of BEACONS) {
     if (!drag.enabled[b.key]) continue;
     const hist = beaconHistory(b.key);
     rangeSeries.push({ color: b.color, points: hist.map((p) => ({ v: p.v, y: p.range, n: p.n })) });
     forceSeries.push({ color: b.color, points: hist.filter((p) => p.force !== null).map((p) => ({ v: p.v, y: p.force, n: p.n })) });
+
+    const ts = beaconTimeSeries(b.key);
+    rangeTrend.push({ color: b.color, points: ts.filter((p) => p.range !== null).map((p) => ({ epoch: p.epoch, y: p.range })) });
+    forceTrend.push({ color: b.color, points: ts.filter((p) => p.force !== null).map((p) => ({ epoch: p.epoch, y: p.force })) });
   }
   drawHistoryChart(canvasRange, ctxRange, rangeSeries);
   drawHistoryChart(canvasForce, ctxForce, forceSeries);
+  drawTrendChart(canvasRangeTrend, ctxRangeTrend, rangeTrend, drag.lastEpoch);
+  drawTrendChart(canvasForceTrend, ctxForceTrend, forceTrend, drag.lastEpoch);
 }
 
 function updateBars() {

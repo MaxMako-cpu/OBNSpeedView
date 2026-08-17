@@ -1077,7 +1077,7 @@ input[type=file] { display: none; }
   flex-direction: column;
   gap: 8px;
   flex: 1;
-  min-height: 260px;
+  min-height: 340px;
   padding: 0 18px 8px;
 }
 .drag-history-charts {
@@ -1110,11 +1110,27 @@ input[type=file] { display: none; }
   flex: 1;
   min-height: 0;
 }
-.drag-history-chart-wrap canvas {
+.drag-history-chart-wrap canvas,
+.drag-history-trend-wrap canvas {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
+}
+.drag-history-trend-label {
+  font-size: 9.5px;
+  letter-spacing: 1px;
+  color: var(--text-faint);
+  text-transform: uppercase;
+  flex-shrink: 0;
+}
+.drag-history-trend-wrap {
+  position: relative;
+  height: 72px;
+  flex-shrink: 0;
+  background: var(--bg-deep);
+  border: 1px solid var(--grid-soft);
+  border-radius: 6px;
 }
 .drag-history-legend {
   display: flex;
