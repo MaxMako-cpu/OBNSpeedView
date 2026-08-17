@@ -67,15 +67,16 @@ function drawReportPanel(cx,w,h,opts){
 
 function seriesPoints(rows,field,m0,m1){const out=[];for(const r of rows){if(r.epoch<m0||r.epoch>m1)continue;out.push({epoch:r.epoch,val:r[field]});}return out;}
 
-// Vessel SOG vs TMS horizontal offset scatter + fitted trend for a region's
-// rows — same derivation (js/drag-analysis.js::fitRowsForBeacon) as the live
-// Drag Analysis panel, just region-scoped instead of whole-session. Plots
-// the derived horizontal offset (sqrt(range^2 - vdist^2)), not raw LP Range.
+// Vessel SOG vs TMS LP Range scatter + fitted trend for a region's rows —
+// same derivation (js/drag-analysis.js::fitRowsForBeacon) as the live Drag
+// Analysis panel, just region-scoped instead of whole-session. LP Range
+// (4DNav) is already the horizontal beacon-to-transceiver distance, so this
+// is LP Range itself, smoothed — no geometric transform against depth.
 function drawDragAnalysisPanel(cx,w,h,rows){
   const padL=46,padR=20,padT=22,padB=40,plotW=w-padL-padR,plotH=h-padT-padB;
   cx.fillStyle="#ffffff";cx.fillRect(0,0,w,h);
   cx.fillStyle="#374151";cx.font="bold 9.5px 'JetBrains Mono',monospace";cx.textAlign="left";cx.textBaseline="alphabetic";
-  cx.fillText("DRAG ANALYSIS — Vessel SOG vs Horizontal Offset",2,11);
+  cx.fillText("DRAG ANALYSIS — Vessel SOG vs LP Range",2,11);
 
   const beacons=beaconConfig();
   const results=beacons.map(bd=>({bd,...fitRowsForBeacon(rows,bd.key)}));
@@ -84,7 +85,7 @@ function drawDragAnalysisPanel(cx,w,h,rows){
 
   if(!anyPoints){
     cx.fillStyle="#9ca3af";cx.font="italic 9px 'JetBrains Mono',monospace";cx.textAlign="center";
-    cx.fillText("No speed / offset data in this window",padL+plotW/2,padT+plotH/2);
+    cx.fillText("No speed / LP Range data in this window",padL+plotW/2,padT+plotH/2);
     return;
   }
   sogMax=Math.max(sogMax,0.5)*1.15; yMax=Math.max(yMax,10)*1.15;
@@ -112,7 +113,7 @@ function drawDragAnalysisPanel(cx,w,h,rows){
   for(const{bd}of results){cx.fillStyle=bd.color;cx.fillText(bd.label,lx,ly);ly+=9;}
 
   cx.strokeStyle="#9ca3af";cx.lineWidth=0.8;cx.beginPath();cx.moveTo(padL,padT);cx.lineTo(padL,padT+plotH);cx.lineTo(w-padR,padT+plotH);cx.stroke();
-  cx.save();cx.translate(11,padT+plotH/2);cx.rotate(-Math.PI/2);cx.fillStyle="#4b5563";cx.font="8px 'JetBrains Mono',monospace";cx.textAlign="center";cx.fillText("HORIZ. OFFSET (M)",0,0);cx.restore();
+  cx.save();cx.translate(11,padT+plotH/2);cx.rotate(-Math.PI/2);cx.fillStyle="#4b5563";cx.font="8px 'JetBrains Mono',monospace";cx.textAlign="center";cx.fillText("LP RANGE (M)",0,0);cx.restore();
   cx.fillStyle="#4b5563";cx.font="7px 'JetBrains Mono',monospace";cx.textAlign="center";cx.textBaseline="top";
   cx.fillText("VESSEL SOG (KN)",padL+plotW/2,padT+plotH+16);
 

@@ -31,7 +31,6 @@ import queue
 import tkinter as tk
 import datetime
 import time
-import math
 import asyncio
 import json
 import logging
@@ -90,9 +89,10 @@ CSV_HEADER = (
     "TMS334_LP Range (m),TMS334_LP Vertical distance (m),TMS334_LP Declination"
 )
 
-# ── TMS horizontal offset / velocity (derived, no new telemetry) ───────
-# horizontal_offset = sqrt(range^2 - vdist^2), smoothed over a small
-# moving-average window (sample-count based, not time based) before being
+# ── TMS LP Range smoothing / velocity (derived, no new telemetry) ──────
+# LP Range (4DNav) is already the horizontal beacon-to-transceiver
+# distance, so this is LP Range itself, smoothed over a small moving-
+# average window (sample-count based, not time based) before being
 # differentiated into a velocity. A gap between valid samples larger than
 # TMS_MAX_GAP_SEC (beacon fix loss / dropout) resets the smoothing window
 # and suppresses one velocity sample, so a stale reading never gets
@@ -437,20 +437,18 @@ def parse_udp_to_csv(raw: str):
     except (ValueError, IndexError):
         return None
 
-# ── TMS horizontal offset / velocity derivation ─────────────────────────
-def _tms_horizontal_offset(lp_range: float, lp_vdist: float) -> float:
-    """sqrt(range^2 - vdist^2), clamped to 0 — a marginally-negative value
-    under the sqrt is sample noise on a near-vertical geometry, not an
-    invalid reading."""
-    sq = lp_range * lp_range - lp_vdist * lp_vdist
-    return math.sqrt(sq) if sq > 0 else 0.0
-
+# ── TMS LP Range smoothing / velocity derivation ────────────────────────
+# LP Range, as computed by 4DNav, is already the horizontal beacon-to-
+# transceiver distance — NOT a slant range needing a Pythagorean split
+# against LP Vertical Distance (that was an earlier wrong assumption; see
+# project history). So there is no geometric transform here at all — this
+# is LP Range itself, sample-smoothed and differenced into a velocity.
 def compute_tms_derived(raw_line: str, ts_epoch: float) -> dict:
     """
-    Derive horizontal offset (m) and velocity (kn) for each towed TMS unit
-    (333/334) from the existing LP Range / LP Vertical Distance fields —
-    same raw UDP line parse_udp_to_csv already reads, no new telemetry.
-    Values are None for a beacon whose fix is currently unavailable/invalid.
+    Derive a smoothed LP Range (m) and its rate of change (kn) for each
+    towed TMS unit (333/334) — same raw UDP line parse_udp_to_csv already
+    reads, no new telemetry. Values are None for a beacon whose fix is
+    currently unavailable/invalid.
     """
     line = raw_line.strip()
     if "*" in line:
@@ -466,19 +464,18 @@ def compute_tms_derived(raw_line: str, ts_epoch: float) -> dict:
             return None
 
     # Same field positions parse_udp_to_csv uses:
-    #   TMS333 LP Range = parts[8],  VDist = parts[10]
-    #   TMS334 LP Range = parts[16], VDist = parts[17]
+    #   TMS333 LP Range = parts[8], TMS334 LP Range = parts[16]
     sources = {
-        "TMS333": (safe_float(parts[8]),  safe_float(parts[10])),
-        "TMS334": (safe_float(parts[16]), safe_float(parts[17])),
+        "TMS333": safe_float(parts[8]),
+        "TMS334": safe_float(parts[16]),
     }
 
     out = {}
-    for label, (lp_range, lp_vdist) in sources.items():
+    for label, lp_range in sources.items():
         prefix = label.lower()  # "tms333" / "tms334"
         st = _tms_state[label]
 
-        if lp_range is None or lp_vdist is None:
+        if lp_range is None:
             out[f"{prefix}_horizontal_offset_m"] = None
             out[f"{prefix}_velocity_kn"] = None
             continue
@@ -489,8 +486,7 @@ def compute_tms_derived(raw_line: str, ts_epoch: float) -> dict:
         if st["last_epoch"] is not None and (ts_epoch - st["last_epoch"]) > TMS_MAX_GAP_SEC:
             st["window"].clear()
 
-        raw_offset = _tms_horizontal_offset(lp_range, lp_vdist)
-        st["window"].append(raw_offset)
+        st["window"].append(lp_range)
         filtered = sum(st["window"]) / len(st["window"])
 
         velocity_kn = None

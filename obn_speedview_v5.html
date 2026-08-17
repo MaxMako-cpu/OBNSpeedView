@@ -69,7 +69,7 @@
       <button class="tbtn success" id="btn-lp-live" title="Live LP Range monitor">LP LIVE</button>
       <button class="tbtn" id="btn-lp-decl">LP DECL ALERT</button>
       <div style="width:1px;height:22px;background:var(--grid);flex-shrink:0;margin:0 2px;"></div>
-      <button class="tbtn" id="btn-drag-analysis" title="Vessel speed vs TMS horizontal offset correlation, live &amp; predicted">DRAG ANALYSIS</button>
+      <button class="tbtn" id="btn-drag-analysis" title="Vessel speed vs TMS LP Range correlation, live &amp; predicted">DRAG ANALYSIS</button>
       <div style="width:1px;height:22px;background:var(--grid);flex-shrink:0;margin:0 2px;"></div>
       <button class="tbtn" id="btn-node-fixes">NODE FIXES</button>
       <div style="width:1px;height:22px;background:var(--grid);flex-shrink:0;margin:0 2px;"></div>
@@ -243,7 +243,7 @@
     <div class="beacon-grid" id="beacon-check-grid"></div>
 
     <hr class="ro-hline" style="margin:10px 0;">
-    <label class="panel-check-row"><input type="checkbox" data-key="drag_analysis" checked> Drag Analysis (speed vs horizontal offset, TMS333 &amp; TMS334)</label>
+    <label class="panel-check-row"><input type="checkbox" data-key="drag_analysis" checked> Drag Analysis (speed vs LP Range, TMS333 &amp; TMS334)</label>
 
     <div class="quick-row">
       <button id="report-select-all">Select all</button>
@@ -362,7 +362,7 @@
     <div class="drag-header">
       <div class="drag-header-mark"></div>
       <div class="drag-header-title">DRAG ANALYSIS</div>
-      <div class="drag-header-sub">Speed / Horizontal Offset correlation &middot; TMS333 &amp; TMS334</div>
+      <div class="drag-header-sub">Speed / LP Range correlation &middot; TMS333 &amp; TMS334</div>
       <div class="drag-live-chip"><span class="dot"></span>LIVE</div>
       <div class="toolbar-spacer"></div>
       <button id="drag-panel-close">CLOSE</button>
@@ -397,8 +397,8 @@
           <div class="drag-readout-grid">
             <div class="drag-ro-item accent-amber"><div class="name">Vessel SOG</div><div class="val" id="drag-ro-sog">&mdash;<span class="unit">kn</span></div></div>
             <div class="drag-ro-item accent-amber"><div class="name">Est. drag force</div><div class="val" id="drag-ro-force">&mdash;<span class="unit">kN</span></div></div>
-            <div class="drag-ro-item accent-333"><div class="name">TMS333 Horiz. Offset</div><div class="val" id="drag-ro-r333">&mdash;<span class="unit">m</span></div></div>
-            <div class="drag-ro-item accent-334"><div class="name">TMS334 Horiz. Offset</div><div class="val" id="drag-ro-r334">&mdash;<span class="unit">m</span></div></div>
+            <div class="drag-ro-item accent-333"><div class="name">TMS333 LP Range</div><div class="val" id="drag-ro-r333">&mdash;<span class="unit">m</span></div></div>
+            <div class="drag-ro-item accent-334"><div class="name">TMS334 LP Range</div><div class="val" id="drag-ro-r334">&mdash;<span class="unit">m</span></div></div>
           </div>
           <div class="drag-sens-row"><div class="lbl"><span class="dot" style="background:var(--red);"></span>333 sensitivity</div><div class="figure" id="drag-sens-333">&mdash;</div></div>
           <div class="drag-sens-row"><div class="lbl"><span class="dot" style="background:var(--green);"></span>334 sensitivity</div><div class="figure" id="drag-sens-334">&mdash;</div></div>
@@ -419,7 +419,7 @@
         </div>
 
         <div class="drag-card drag-predict-card">
-          <div class="drag-card-title">Prediction &mdash; horiz. offset, +0.1kt steps</div>
+          <div class="drag-card-title">Prediction &mdash; LP Range, +0.1kt steps</div>
           <div class="drag-predict-scroll">
             <table id="drag-predict-table">
               <thead><tr><th>SOG</th><th>333 (m)</th><th>334 (m)</th></tr></thead>

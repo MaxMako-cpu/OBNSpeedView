@@ -3,16 +3,20 @@
 
    Tracks how TMS333/334 LP Range responds to vessel SOG, live and on
    loaded archive days. Purely derived from fields already on the wire
-   (IFR SOG, TMS{333,334}_LP Range/Vertical distance) — no new telemetry.
+   (IFR SOG, TMS{333,334}_LP Range) — no new telemetry.
 
    Design notes (see conversation for the full rationale):
-   - horizontal_offset = sqrt(range^2 - vdist^2), smoothed over a small
-     sample-count window (DRAG_FILTER_WINDOW) before being used, mirroring
-     the same derivation the backend now also computes for its own
-     "live" WS message fields. Recomputed independently here (rather than
-     consumed from the WS message) so live and loaded-archive rows go
-     through the exact same code path — archived rows never carry the
-     backend's derived fields since those aren't persisted.
+   - LP Range, as computed by 4DNav, is already the horizontal beacon-to-
+     transceiver distance (confirmed against an earlier wrong assumption
+     that it was a slant range needing a Pythagorean split against LP
+     Vertical Distance — it isn't, so there is no geometric transform
+     here at all). This is LP Range itself, smoothed over a small
+     sample-count window (DRAG_FILTER_WINDOW), mirroring the same
+     derivation the backend also computes for its own "live" WS message
+     fields. Recomputed independently here (rather than consumed from the
+     WS message) so live and loaded-archive rows go through the exact
+     same code path — archived rows never carry the backend's derived
+     fields since those aren't persisted.
    - A gap between valid samples > DRAG_MAX_GAP_SEC resets that beacon's
      smoothing window (fix dropout — don't average across the gap).
    - The fit (quadratic least-squares) is maintained via running sums
@@ -28,8 +32,8 @@ const PREDICT_STEP_KT    = 0.1;
 const RHO                = 1025;  // seawater density, kg/m^3 — fixed
 
 const BEACONS = [
-  { key: "333", label: "TMS333", rangeField: "TMS333_LP Range (m)", vdistField: "TMS333_LP Vertical distance (m)", color: "#ff4d6a", glow: "rgba(255,77,106,0.9)" },
-  { key: "334", label: "TMS334", rangeField: "TMS334_LP Range (m)", vdistField: "TMS334_LP Vertical distance (m)", color: "#3ee07a", glow: "rgba(62,224,122,0.9)" },
+  { key: "333", label: "TMS333", rangeField: "TMS333_LP Range (m)", color: "#ff4d6a", glow: "rgba(255,77,106,0.9)" },
+  { key: "334", label: "TMS334", rangeField: "TMS334_LP Range (m)", color: "#3ee07a", glow: "rgba(62,224,122,0.9)" },
 ];
 
 function freshBeaconState() {
@@ -37,7 +41,7 @@ function freshBeaconState() {
     ring: [],
     window: [],
     lastEpoch: null,
-    lastFiltered: null, // most recent real (smoothed) horizontal offset — used for the "now" readout
+    lastFiltered: null, // most recent real (smoothed) LP Range — used for the "now" readout
     n: 0,
     S0: 0, S1: 0, S2: 0, S3: 0, S4: 0, T0: 0, T1: 0, T2: 0,
   };
@@ -62,11 +66,6 @@ const drag = {
   beacons: { "333": freshBeaconState(), "334": freshBeaconState() },
 };
 
-function horizontalOffset(lpRange, lpVdist) {
-  const sq = lpRange * lpRange - lpVdist * lpVdist;
-  return sq > 0 ? Math.sqrt(sq) : 0;
-}
-
 function resetAll() {
   drag.sogMin = Infinity;
   drag.sogMax = -Infinity;
@@ -75,15 +74,14 @@ function resetAll() {
   drag.beacons["334"] = freshBeaconState();
 }
 
-function ingestPoint(key, sog, lpRange, lpVdist, epoch) {
+function ingestPoint(key, sog, lpRange, epoch) {
   const b = drag.beacons[key];
 
   if (Number.isFinite(epoch) && b.lastEpoch !== null && (epoch - b.lastEpoch) > DRAG_MAX_GAP_SEC) {
     b.window.length = 0;
   }
 
-  const raw = horizontalOffset(lpRange, lpVdist);
-  b.window.push(raw);
+  b.window.push(lpRange);
   if (b.window.length > DRAG_FILTER_WINDOW) b.window.shift();
   const filtered = b.window.reduce((a, v) => a + v, 0) / b.window.length;
 
@@ -121,10 +119,8 @@ export function ingestRow(row) {
   for (const b of BEACONS) {
     if (!drag.enabled[b.key]) continue;
     const range = row[b.rangeField];
-    const vdist = row[b.vdistField];
     if (range === null || range === undefined || !Number.isFinite(range)) continue;
-    if (vdist === null || vdist === undefined || !Number.isFinite(vdist)) continue;
-    ingestPoint(b.key, sog, range, vdist, epoch);
+    ingestPoint(b.key, sog, range, epoch);
   }
 
   if (panelOpen) { render(); updateReadouts(hoverSog); }
@@ -180,12 +176,9 @@ export function fitRowsForBeacon(rows, beaconKey) {
   for (const row of rows) {
     const sog = row["IFR SOG (knot)"];
     const range = row[bd.rangeField];
-    const vdist = row[bd.vdistField];
     if (sog === null || sog === undefined || !Number.isFinite(sog)) continue;
     if (range === null || range === undefined || !Number.isFinite(range)) continue;
-    if (vdist === null || vdist === undefined || !Number.isFinite(vdist)) continue;
-    const raw = horizontalOffset(range, vdist);
-    win.push(raw);
+    win.push(range);
     if (win.length > DRAG_FILTER_WINDOW) win.shift();
     const filtered = win.reduce((a, v) => a + v, 0) / win.length;
     points.push({ v: sog, y: filtered });
@@ -329,7 +322,7 @@ function render() {
   }
   ctx.save(); ctx.translate(16, a.y0 + a.h / 2); ctx.rotate(-Math.PI / 2);
   ctx.font = "11.5px 'JetBrains Mono', monospace"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
-  ctx.fillText("HORIZ. OFFSET (M)", 0, 0);
+  ctx.fillText("LP RANGE (M)", 0, 0);
   ctx.restore();
   ctx.textAlign = "center"; ctx.textBaseline = "alphabetic"; ctx.font = "11.5px 'JetBrains Mono', monospace";
   ctx.fillText("VESSEL SOG (KN)", a.x0 + a.w / 2, cssH - 7);
@@ -406,8 +399,8 @@ function updateReadouts(sogOverride) {
   const fit333 = computeFit("333");
   const fit334 = computeFit("334");
 
-  // Not hovering ("now"): show the real last-observed/smoothed offset, not a
-  // regression estimate — early in a session or with noisy data the fit can
+  // Not hovering ("now"): show the real last-observed/smoothed LP Range, not
+  // a regression estimate — early in a session or with noisy data the fit can
   // read differently from what was actually just measured. While hovering
   // elsewhere on the chart, there's no "real" sample at that speed, so the
   // fit is the only thing that can answer "what would it be at this speed".
