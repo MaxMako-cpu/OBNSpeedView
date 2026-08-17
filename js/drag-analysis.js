@@ -1,54 +1,38 @@
 /* ======================================================================
    OBN SpeedView — Drag Analysis panel
 
-   Tracks how TMS333/334 LP Range responds to vessel SOG, live and on
-   loaded archive days. Purely derived from fields already on the wire
-   (IFR SOG, TMS{333,334}_LP Range) — no new telemetry.
+   Shows how TMS333/334 LP Range has actually responded to vessel SOG,
+   live and on loaded archive days. Purely derived from fields already on
+   the wire (IFR SOG, TMS{333,334}_LP Range) — no new telemetry.
 
-   Design notes (see conversation for the full rationale):
+   Design notes:
    - LP Range, as computed by 4DNav, is already the horizontal beacon-to-
      transceiver distance (confirmed against an earlier wrong assumption
      that it was a slant range needing a Pythagorean split against LP
      Vertical Distance — it isn't, so there is no geometric transform
-     here at all). This is LP Range itself, smoothed over a small
-     sample-count window (DRAG_FILTER_WINDOW) to cut sample noise before
-     it feeds the fit, mirroring the same derivation the backend also
-     computes for its own "live" WS message fields. Recomputed
-     independently here (rather than consumed from the WS message) so
-     live and loaded-archive rows go through the exact same code path —
-     archived rows never carry the backend's derived fields since those
-     aren't persisted.
+     here). This is LP Range itself, smoothed over a small sample-count
+     window (DRAG_FILTER_WINDOW) to cut sample noise, mirroring the same
+     derivation the backend also computes for its own "live" WS message
+     fields. Recomputed independently here (rather than consumed from the
+     WS message) so live and loaded-archive rows go through the exact
+     same code path — archived rows never carry the backend's derived
+     fields since those aren't persisted.
    - A gap between valid samples > DRAG_MAX_GAP_SEC resets that beacon's
      smoothing window (fix dropout — don't average across the gap).
-   - The live fit is a weighted linear regression of LP Range on SOG^2
-     (not SOG) — matching the drag-force relationship (F ~ v^2) rather
-     than an unconstrained free-form quadratic that could curve back
-     down at high speed or swing wildly on extrapolation. The fitted
-     slope k is clamped >= 0: LP Range increasing with speed is the only
-     physically sane direction for a towed body.
-   - Weighting decays exponentially by elapsed time (DRAG_FIT_HALFLIFE_SEC),
-     applied to the running sums on every sample in O(1), so the fit
-     tracks current conditions — a sample from hours ago fades out rather
-     than permanently anchoring the curve alongside brand-new data.
-   - Every prediction carries a standard-error estimate (the textbook
-     prediction-interval formula for weighted simple linear regression,
-     computed from the same running sums) that grows the further a speed
-     is from the weighted center of what's actually been observed — so
-     "we're extrapolating past real data" is visible, not silently
-     presented as equally precise as the fitted region.
-   - Running sums are maintained in O(1) per sample, decayed rather than
-     reset, so the fit is always current without rescanning history. A
-     separate capped ring buffer holds raw points only for the scatter
-     cloud's visual texture — decoupled from the fit itself.
+   - No fitting, no modeling, no extrapolation. This deliberately replaces
+     an earlier curve-fit/prediction design that didn't hold up under
+     real-world testing — every value shown here is a straight average of
+     samples actually measured at that speed. Speeds never observed this
+     session simply have no entry; nothing is projected or guessed.
+     Smoothed samples are bucketed by speed (DRAG_BUCKET_KT) and averaged
+     per bucket in O(1) per sample — that per-bucket average, plotted
+     against the speeds that produced it, is the entire "history" view.
    ====================================================================== */
-const DRAG_FILTER_WINDOW    = 5;     // samples
-const DRAG_MAX_GAP_SEC      = 5.0;   // seconds
-const DRAG_RING_CAP         = 3000;  // raw scatter points kept per beacon
-const DRAG_FIT_HALFLIFE_SEC = 900;   // 15 min — how fast the live fit forgets old samples
-const DRAG_DECAY_LAMBDA     = Math.LN2 / DRAG_FIT_HALFLIFE_SEC;
-const PREDICT_HORIZON_KT    = 2.0;   // how far past current/max-observed speed to predict
-const PREDICT_STEP_KT       = 0.1;
-const RHO                   = 1025;  // seawater density, kg/m^3 — fixed
+const DRAG_FILTER_WINDOW = 5;     // samples — smooths raw noise before bucketing
+const DRAG_MAX_GAP_SEC   = 5.0;   // seconds — dropout gap resets the smoothing window
+const DRAG_RING_CAP      = 3000;  // raw scatter points kept per beacon
+const DRAG_BUCKET_KT     = 0.1;   // speed-bucket width for the historical average
+const RHO                = 1025;  // seawater density, kg/m^3 — fixed
 
 const BEACONS = [
   { key: "333", label: "TMS333", rangeField: "TMS333_LP Range (m)", color: "#ff4d6a", glow: "rgba(255,77,106,0.9)" },
@@ -61,12 +45,8 @@ function freshBeaconState() {
     window: [],
     lastEpoch: null,
     lastFiltered: null, // most recent real (smoothed) LP Range — used for the "now" readout
-    n: 0,               // raw sample count ever seen (gates "insufficient data", not fit-weighted)
-    // Exponentially-decayed weighted sums for the y = baseline + k*v^2 fit
-    // (u = v^2). Decayed by elapsed time on every ingest — see
-    // DRAG_FIT_HALFLIFE_SEC — so old samples fade rather than persisting
-    // at full weight forever.
-    Sw: 0, Su: 0, Suu: 0, Sy: 0, Suy: 0, Syy: 0,
+    n: 0,
+    buckets: new Map(), // bucketIndex (round(sog/DRAG_BUCKET_KT)) -> { sum, count }
   };
 }
 
@@ -82,9 +62,9 @@ const drag = {
   sogMax: -Infinity,
   lastSog: null,
   // Per-beacon on/off — switched off when a TMS is on deck and its LP Range
-  // is known-corrupt, so it never gets ingested into that beacon's fit.
+  // is known-corrupt, so it never gets ingested into that beacon's history.
   // Doesn't touch already-accumulated data — only gates future samples, so
-  // valid data collected before switching off stays in the fit.
+  // valid data collected before switching off stays visible.
   enabled: { "333": loadEnabled("333"), "334": loadEnabled("334") },
   beacons: { "333": freshBeaconState(), "334": freshBeaconState() },
 };
@@ -95,6 +75,10 @@ function resetAll() {
   drag.lastSog = null;
   drag.beacons["333"] = freshBeaconState();
   drag.beacons["334"] = freshBeaconState();
+}
+
+function bucketIndex(sog) {
+  return Math.round(sog / DRAG_BUCKET_KT);
 }
 
 function ingestPoint(key, sog, lpRange, epoch) {
@@ -109,28 +93,15 @@ function ingestPoint(key, sog, lpRange, epoch) {
   if (b.window.length > DRAG_FILTER_WINDOW) b.window.shift();
   const filtered = b.window.reduce((a, v) => a + v, 0) / b.window.length;
 
-  // Decay the fit's running sums by elapsed time before adding this sample,
-  // so older contributions shrink smoothly instead of being remembered at
-  // full weight forever. A gap large enough to also reset the smoothing
-  // window above decays this by the same (large) factor automatically —
-  // no separate gap-handling needed here.
-  if (dt !== null) {
-    const decay = Math.exp(-DRAG_DECAY_LAMBDA * dt);
-    b.Sw *= decay; b.Su *= decay; b.Suu *= decay;
-    b.Sy *= decay; b.Suy *= decay; b.Syy *= decay;
-  }
-
-  const u = sog * sog;
-  b.Sw += 1;
-  b.Su += u;
-  b.Suu += u * u;
-  b.Sy += filtered;
-  b.Suy += u * filtered;
-  b.Syy += filtered * filtered;
-  b.n += 1;
-
   b.lastEpoch = epoch;
   b.lastFiltered = filtered;
+  b.n += 1;
+
+  const idx = bucketIndex(sog);
+  let bucket = b.buckets.get(idx);
+  if (!bucket) { bucket = { sum: 0, count: 0 }; b.buckets.set(idx, bucket); }
+  bucket.sum += filtered;
+  bucket.count += 1;
 
   b.ring.push({ v: sog, y: filtered });
   if (b.ring.length > DRAG_RING_CAP) b.ring.shift();
@@ -142,7 +113,7 @@ function ingestPoint(key, sog, lpRange, epoch) {
 
 // Called on the same day-boundary resets everything else in the app already
 // does (regions, events, LP alert zones) — a new UTC day starts the
-// speed/LP-range correlation fresh rather than blending across days.
+// speed/LP-range history fresh rather than blending across days.
 export function reset() {
   resetAll();
   if (panelOpen) refreshAll();
@@ -167,68 +138,38 @@ export function ingestRow(row) {
 export function rebuildFromRows(rows) {
   resetAll();
   if (rows) for (const row of rows) ingestRow(row);
-  if (panelOpen) { render(); updateReadouts(hoverSog); buildPredictionTable(); }
+  if (panelOpen) { render(); updateReadouts(hoverSog); buildHistoryTable(); }
 }
 
-// Weighted simple linear regression of y (LP Range) on u = v^2 (SOG^2) —
-// y = baseline + k*u — from pre-accumulated (possibly decayed) sums.
-// Physically constrained: k is clamped >= 0 (LP Range can't physically
-// decrease with speed for a towed body); if the unconstrained fit wants
-// k < 0, it's refit with k pinned to 0 (plain weighted mean — "no speed
-// dependence detected yet") rather than reporting a backwards slope.
-// stdAt(v) is the standard prediction-interval formula for weighted simple
-// linear regression: it's smallest near the weighted center of the speeds
-// actually observed and grows the further a speed is from that center in
-// either direction — i.e. it's honest about extrapolation risk.
-// Returns null if there's too little speed^2 variation to solve stably.
-function solveDragModelFromSums(Sw, Su, Suu, Sy, Suy, Syy) {
-  if (!(Sw > 1e-6)) return null;
-  const D = Sw * Suu - Su * Su; // = Sw * Sxx
-  if (!Number.isFinite(D) || Math.abs(D) < 1e-6) return null; // near-singular — not enough speed variation
-
-  let baseline = (Suu * Sy - Su * Suy) / D;
-  let k = (Sw * Suy - Su * Sy) / D;
-  if (!Number.isFinite(baseline) || !Number.isFinite(k)) return null;
-
-  if (k < 0) {
-    k = 0;
-    baseline = Sy / Sw;
-  }
-
-  const rss = Syy - 2 * (baseline * Sy + k * Suy) + baseline * baseline * Sw + 2 * baseline * k * Su + k * k * Suu;
-  const residualVar = Math.max(0, rss / Sw);
-  const xbar = Su / Sw;
-  const Sxx = D / Sw;
-  if (!(Sxx > 1e-6)) return null;
-
-  return {
-    n: Sw,
-    at: (v) => baseline + k * v * v,
-    slopeAt: (v) => 2 * k * v,
-    stdAt: (v) => {
-      const u = v * v;
-      const variance = residualVar * (1 + 1 / Sw + ((u - xbar) * (u - xbar)) / Sxx);
-      return Math.sqrt(Math.max(0, variance));
-    },
-  };
-}
-
-// Fit from this session's live-accumulated, exponentially-decayed running
-// sums (O(1) per sample, always current — see DRAG_FIT_HALFLIFE_SEC).
-function computeFit(key) {
+// Sorted (by speed) array of { v, y, n } — the real per-bucket average LP
+// Range for every speed actually observed this session, and how many
+// samples backed that average. Empty buckets simply don't appear; nothing
+// is interpolated or projected beyond what's been measured.
+function historyPoints(key) {
   const b = drag.beacons[key];
-  if (b.n < 10) return null;
-  return solveDragModelFromSums(b.Sw, b.Su, b.Suu, b.Sy, b.Suy, b.Syy);
+  const pts = [];
+  for (const [idx, bucket] of b.buckets) {
+    pts.push({ v: idx * DRAG_BUCKET_KT, y: bucket.sum / bucket.count, n: bucket.count });
+  }
+  pts.sort((a, c) => a.v - c.v);
+  return pts;
 }
 
-// Fit from an arbitrary rows slice (e.g. a report region's time window) —
-// independent of the live session state, for one-shot use by report.js.
-// Applies the same SMA smoothing over the slice's samples in order, but
-// unweighted/undecayed — a report region is already a fixed, user-chosen
-// window, so every sample in it counts equally rather than fading by age.
-export function fitRowsForBeacon(rows, beaconKey) {
+function nearestHistoryPoint(key, v) {
+  const pts = historyPoints(key);
+  if (!pts.length) return null;
+  let best = pts[0];
+  for (const p of pts) if (Math.abs(p.v - v) < Math.abs(best.v - v)) best = p;
+  return best;
+}
+
+// Same bucketed-average derivation as ingestPoint/historyPoints, but as a
+// one-shot computation over an arbitrary rows slice (e.g. a report region's
+// time window) — independent of the live session state, for report.js.
+export function historyForBeacon(rows, beaconKey) {
   const bd = BEACONS.find((x) => x.key === beaconKey);
-  const points = [];
+  const rawPoints = [];
+  const buckets = new Map();
   const win = [];
   for (const row of rows) {
     const sog = row["IFR SOG (knot)"];
@@ -238,16 +179,17 @@ export function fitRowsForBeacon(rows, beaconKey) {
     win.push(range);
     if (win.length > DRAG_FILTER_WINDOW) win.shift();
     const filtered = win.reduce((a, v) => a + v, 0) / win.length;
-    points.push({ v: sog, y: filtered });
+    rawPoints.push({ v: sog, y: filtered });
+    const idx = bucketIndex(sog);
+    let bucket = buckets.get(idx);
+    if (!bucket) { bucket = { sum: 0, count: 0 }; buckets.set(idx, bucket); }
+    bucket.sum += filtered;
+    bucket.count += 1;
   }
-  if (points.length < 10) return { points, fit: null };
-  let Sw = 0, Su = 0, Suu = 0, Sy = 0, Suy = 0, Syy = 0;
-  for (const p of points) {
-    const u = p.v * p.v;
-    Sw += 1; Su += u; Suu += u * u;
-    Sy += p.y; Suy += u * p.y; Syy += p.y * p.y;
-  }
-  return { points, fit: solveDragModelFromSums(Sw, Su, Suu, Sy, Suy, Syy) };
+  const history = [];
+  for (const [idx, bucket] of buckets) history.push({ v: idx * DRAG_BUCKET_KT, y: bucket.sum / bucket.count, n: bucket.count });
+  history.sort((a, b) => a.v - b.v);
+  return { points: rawPoints, history };
 }
 
 export function beaconConfig() {
@@ -281,11 +223,9 @@ const roSog   = document.getElementById("drag-ro-sog");
 const roForce = document.getElementById("drag-ro-force");
 const roR333  = document.getElementById("drag-ro-r333");
 const roR334  = document.getElementById("drag-ro-r334");
-const sens333 = document.getElementById("drag-sens-333");
-const sens334 = document.getElementById("drag-sens-334");
 const inCd    = document.getElementById("drag-in-cd");
 const inArea  = document.getElementById("drag-in-area");
-const predictTbody = document.getElementById("drag-predict-tbody");
+const historyTbody = document.getElementById("drag-history-tbody");
 const footerN = document.getElementById("drag-footer-n");
 
 const MARGIN = { top: 22, right: 24, bottom: 42, left: 62 };
@@ -308,18 +248,11 @@ function resizeCanvas() {
 function axisBounds() {
   const currentSog = drag.lastSog !== null ? drag.lastSog : 0;
   const observedMax = Number.isFinite(drag.sogMax) ? drag.sogMax : 0;
-  let vMax = Math.max(observedMax, currentSog) + PREDICT_HORIZON_KT;
-  vMax = Math.max(vMax, 2.0);
+  const vMax = Math.max(Math.max(observedMax, currentSog) + 0.3, 1.0);
 
   let yMax = 50;
   for (const b of BEACONS) {
-    const fit = computeFit(b.key);
-    if (!fit) continue;
-    for (let v = 0; v <= vMax; v += vMax / 30) {
-      // Include the confidence band's upper edge so it's never clipped.
-      const y = Math.max(0, fit.at(v) + fit.stdAt(v));
-      if (y > yMax) yMax = y;
-    }
+    for (const p of historyPoints(b.key)) if (p.y > yMax) yMax = p.y;
   }
   return { vMax, yMax: yMax * 1.15 };
 }
@@ -338,24 +271,17 @@ function render() {
   const yToPx = (y) => a.y1 - (y / yMax) * a.h;
 
   const currentSog = drag.lastSog !== null ? drag.lastSog : 0;
-  const observedMax = Number.isFinite(drag.sogMax) ? drag.sogMax : currentSog;
-  const observedMin = Number.isFinite(drag.sogMin) ? drag.sogMin : 0;
-  const predictFrom = Math.max(currentSog, observedMax);
 
-  // prediction zone shading + divider
+  // current-speed marker line
   ctx.save();
-  const px0 = xToPx(predictFrom);
-  ctx.fillStyle = "rgba(255,180,84,0.06)";
-  ctx.fillRect(px0, a.y0, a.x1 - px0, a.h);
+  const px0 = xToPx(currentSog);
   ctx.strokeStyle = "rgba(255,180,84,0.6)";
   ctx.setLineDash([4, 4]); ctx.lineWidth = 1.2;
   ctx.beginPath(); ctx.moveTo(px0, a.y0); ctx.lineTo(px0, a.y1); ctx.stroke();
   ctx.setLineDash([]);
   ctx.fillStyle = "#ffb454"; ctx.font = "12px 'JetBrains Mono', monospace";
   ctx.textAlign = "left";
-  ctx.fillText("CURRENT  " + currentSog.toFixed(2) + " KN", px0 + 8, a.y0 + 15);
-  ctx.fillStyle = "rgba(255,180,84,0.75)";
-  ctx.fillText("PREDICTED →", px0 + 8, a.y1 - 10);
+  ctx.fillText("NOW  " + currentSog.toFixed(2) + " KN", px0 + 8, a.y0 + 15);
   ctx.restore();
 
   // grid
@@ -391,83 +317,47 @@ function render() {
 
   for (const bd of BEACONS) {
     const b = drag.beacons[bd.key];
-    const fit = computeFit(bd.key);
 
-    // confidence band (±1 std, the prediction-interval formula) — drawn
-    // first so the scatter/lines/marker sit on top of it.
-    if (fit) {
-      ctx.save();
-      ctx.fillStyle = bd.color;
-      ctx.globalAlpha = 0.10;
-      ctx.beginPath();
-      const bandStep = Math.max(vMax / 100, 0.01);
-      let firstUpper = true;
-      const lowerPts = [];
-      for (let v = 0; v <= vMax + 1e-6; v += bandStep) {
-        const std = fit.stdAt(v);
-        const yHi = Math.max(0, fit.at(v) + std);
-        const yLo = Math.max(0, fit.at(v) - std);
-        const pxp = xToPx(v);
-        if (firstUpper) { ctx.moveTo(pxp, yToPx(yHi)); firstUpper = false; } else ctx.lineTo(pxp, yToPx(yHi));
-        lowerPts.push([pxp, yToPx(yLo)]);
-      }
-      for (let i = lowerPts.length - 1; i >= 0; i--) ctx.lineTo(lowerPts[i][0], lowerPts[i][1]);
-      ctx.closePath();
-      ctx.fill();
-      ctx.restore();
-    }
-
-    // scatter cloud
+    // scatter cloud — every raw sample actually measured
     ctx.save();
     ctx.fillStyle = bd.color;
-    ctx.globalAlpha = 0.25;
+    ctx.globalAlpha = 0.22;
     for (const p of b.ring) {
       const pxp = xToPx(p.v), pyp = yToPx(p.y);
-      ctx.beginPath(); ctx.arc(pxp, pyp, 2.6, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(pxp, pyp, 2.4, 0, Math.PI * 2); ctx.fill();
     }
     ctx.restore();
 
-    if (!fit) continue;
+    const hist = historyPoints(bd.key);
+    if (hist.length < 2) continue;
 
-    // observed segment — solid, across the actually-observed speed range
+    // history line — connects the real per-speed averages, nothing beyond them
     ctx.save();
     ctx.lineJoin = "round"; ctx.lineCap = "round";
     ctx.shadowColor = bd.glow; ctx.shadowBlur = 7;
-    ctx.strokeStyle = bd.color; ctx.lineWidth = 2;
+    ctx.strokeStyle = bd.color; ctx.lineWidth = 2.5;
     ctx.beginPath();
-    const step = Math.max(vMax / 200, 0.01);
-    let started = false;
-    for (let v = observedMin; v <= observedMax; v += step) {
-      const pxp = xToPx(v), pyp = yToPx(Math.max(0, fit.at(v)));
-      if (!started) { ctx.moveTo(pxp, pyp); started = true; } else ctx.lineTo(pxp, pyp);
-    }
+    hist.forEach((p, i) => {
+      const pxp = xToPx(p.v), pyp = yToPx(p.y);
+      if (i === 0) ctx.moveTo(pxp, pyp); else ctx.lineTo(pxp, pyp);
+    });
     ctx.stroke();
-
-    // predicted segment — dashed, from current/observed-max out to the horizon
-    ctx.shadowBlur = 5;
-    ctx.setLineDash([6, 5]);
-    ctx.beginPath();
-    started = false;
-    for (let v = predictFrom; v <= vMax + 1e-6; v += step) {
-      const pxp = xToPx(v), pyp = yToPx(Math.max(0, fit.at(v)));
-      if (!started) { ctx.moveTo(pxp, pyp); started = true; } else ctx.lineTo(pxp, pyp);
-    }
-    ctx.stroke();
-    ctx.setLineDash([]);
     ctx.restore();
 
-    // current-speed marker
+    // per-bucket markers, sized by how many samples back that average —
+    // more samples at a speed = a bigger, more confident-looking dot.
     ctx.save();
-    const pxp = xToPx(currentSog), pyp = yToPx(Math.max(0, fit.at(currentSog)));
-    ctx.beginPath();
-    ctx.fillStyle = "#050a12"; ctx.strokeStyle = bd.color; ctx.lineWidth = 2;
-    ctx.shadowColor = bd.glow; ctx.shadowBlur = 10;
-    ctx.arc(pxp, pyp, 5, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = bd.color;
+    for (const p of hist) {
+      const pxp = xToPx(p.v), pyp = yToPx(p.y);
+      const r = Math.max(2, Math.min(6, 2 + Math.sqrt(p.n)));
+      ctx.beginPath(); ctx.arc(pxp, pyp, r, 0, Math.PI * 2); ctx.fill();
+    }
     ctx.restore();
   }
 
   if (hoverSog !== null) {
-    ctx.strokeStyle = "rgba(216,230,242,0.35)";
+    ctx.strokeStyle = "rgba(216,230,242,0.3)";
     ctx.setLineDash([3, 3]); ctx.lineWidth = 1;
     const pxp = xToPx(hoverSog);
     ctx.beginPath(); ctx.moveTo(pxp, a.y0); ctx.lineTo(pxp, a.y1); ctx.stroke();
@@ -479,67 +369,49 @@ function render() {
 function updateReadouts(sogOverride) {
   const hovering = sogOverride !== null && sogOverride !== undefined;
   const sog = hovering ? sogOverride : (drag.lastSog !== null ? drag.lastSog : 0);
-  const fit333 = computeFit("333");
-  const fit334 = computeFit("334");
 
-  // Not hovering ("now"): show the real last-observed/smoothed LP Range, not
-  // a regression estimate — early in a session or with noisy data the fit can
-  // read differently from what was actually just measured. While hovering
-  // elsewhere on the chart, there's no "real" sample at that speed, so the
-  // fit is the only thing that can answer "what would it be at this speed".
-  const r333 = hovering ? (fit333 ? Math.max(0, fit333.at(sog)) : null) : drag.beacons["333"].lastFiltered;
-  const r334 = hovering ? (fit334 ? Math.max(0, fit334.at(sog)) : null) : drag.beacons["334"].lastFiltered;
+  // Not hovering ("now"): show the real last-observed/smoothed LP Range.
+  // Hovering elsewhere on the chart: show the nearest speed bucket that was
+  // actually measured — never a projection.
+  const r333 = hovering ? nearestHistoryPoint("333", sog) : (drag.beacons["333"].lastFiltered !== null ? { y: drag.beacons["333"].lastFiltered } : null);
+  const r334 = hovering ? nearestHistoryPoint("334", sog) : (drag.beacons["334"].lastFiltered !== null ? { y: drag.beacons["334"].lastFiltered } : null);
 
   if (roSog) roSog.innerHTML = sog.toFixed(2) + '<span class="unit">kn</span>';
   if (roForce) roForce.innerHTML = (estimateForce(sog) / 1000).toFixed(2) + '<span class="unit">kN</span>';
-  if (roR333) roR333.innerHTML = !drag.enabled["333"] ? "OFF" : (r333 !== null && r333 !== undefined) ? r333.toFixed(0) + '<span class="unit">m</span>' : '—';
-  if (roR334) roR334.innerHTML = !drag.enabled["334"] ? "OFF" : (r334 !== null && r334 !== undefined) ? r334.toFixed(0) + '<span class="unit">m</span>' : '—';
-  if (sens333) sens333.textContent = !drag.enabled["333"] ? "beacon switched off" : fit333 ? fmtSlope(fit333.slopeAt(sog)) : "insufficient data";
-  if (sens334) sens334.textContent = !drag.enabled["334"] ? "beacon switched off" : fit334 ? fmtSlope(fit334.slopeAt(sog)) : "insufficient data";
+  if (roR333) roR333.innerHTML = !drag.enabled["333"] ? "OFF" : r333 ? r333.y.toFixed(0) + '<span class="unit">m</span>' : '—';
+  if (roR334) roR334.innerHTML = !drag.enabled["334"] ? "OFF" : r334 ? r334.y.toFixed(0) + '<span class="unit">m</span>' : '—';
   if (footerN) footerN.textContent = (drag.beacons["333"].n + drag.beacons["334"].n) + " observed samples this session";
 }
-function fmtSlope(perKt) {
-  const per01 = perKt / 10;
-  return (per01 >= 0 ? "+" : "") + per01.toFixed(1) + " m / +0.1kt";
-}
 
-function fmtCell(enabled, fit, v) {
-  if (!enabled) return "OFF";
-  if (!fit) return "—";
-  return `${Math.max(0, fit.at(v)).toFixed(0)} ±${fit.stdAt(v).toFixed(0)} m`;
-}
-
-function buildPredictionTable() {
-  if (!predictTbody) return;
-  predictTbody.innerHTML = "";
-  const fit333 = computeFit("333");
-  const fit334 = computeFit("334");
-  if ((!fit333 && !fit334) || (!drag.enabled["333"] && !drag.enabled["334"])) {
-    const msg = (!drag.enabled["333"] && !drag.enabled["334"])
-      ? "Both beacons switched off — enable at least one to see a prediction."
-      : "Not enough speed variation yet — keep tracking to build a fit.";
-    predictTbody.innerHTML = `<tr><td colspan="3" style="text-align:center;color:var(--text-dim);padding:12px 4px;">${msg}</td></tr>`;
+function buildHistoryTable() {
+  if (!historyTbody) return;
+  historyTbody.innerHTML = "";
+  const h333 = historyPoints("333");
+  const h334 = historyPoints("334");
+  if (!h333.length && !h334.length) {
+    historyTbody.innerHTML = '<tr><td colspan="3" style="text-align:center;color:var(--text-dim);padding:12px 4px;">No data yet — history builds as the vessel moves at different speeds.</td></tr>';
     return;
   }
+  const map333 = new Map(h333.map((p) => [p.v, p]));
+  const map334 = new Map(h334.map((p) => [p.v, p]));
+  const allV = Array.from(new Set([...h333.map((p) => p.v), ...h334.map((p) => p.v)])).sort((a, b) => a - b);
+
   const currentSog = drag.lastSog !== null ? drag.lastSog : 0;
-  const observedMax = Number.isFinite(drag.sogMax) ? drag.sogMax : currentSog;
-  const startFrom = Math.max(currentSog, observedMax);
-  const horizon = startFrom + PREDICT_HORIZON_KT;
+  let nearestV = null;
+  for (const v of allV) if (nearestV === null || Math.abs(v - currentSog) < Math.abs(nearestV - currentSog)) nearestV = v;
 
-  const nowTr = document.createElement("tr");
-  nowTr.className = "now-row";
-  nowTr.innerHTML = `<td>${currentSog.toFixed(2)} kn</td>` +
-    `<td class="c333">${fmtCell(drag.enabled["333"], fit333, currentSog)}</td>` +
-    `<td class="c334">${fmtCell(drag.enabled["334"], fit334, currentSog)}</td>`;
-  predictTbody.appendChild(nowTr);
+  function cell(enabled, p) {
+    if (!enabled) return "OFF";
+    return p ? `${p.y.toFixed(0)}m &middot;${p.n}` : "&mdash;";
+  }
 
-  const startStep = Math.ceil(startFrom / PREDICT_STEP_KT) * PREDICT_STEP_KT;
-  for (let v = Math.round(startStep * 10) / 10; v <= horizon + 1e-6; v = Math.round((v + PREDICT_STEP_KT) * 10) / 10) {
+  for (const v of allV) {
     const tr = document.createElement("tr");
+    if (v === nearestV) tr.className = "now-row";
     tr.innerHTML = `<td>${v.toFixed(1)} kn</td>` +
-      `<td class="c333">${fmtCell(drag.enabled["333"], fit333, v)}</td>` +
-      `<td class="c334">${fmtCell(drag.enabled["334"], fit334, v)}</td>`;
-    predictTbody.appendChild(tr);
+      `<td class="c333">${cell(drag.enabled["333"], map333.get(v))}</td>` +
+      `<td class="c334">${cell(drag.enabled["334"], map334.get(v))}</td>`;
+    historyTbody.appendChild(tr);
   }
 }
 
@@ -547,7 +419,7 @@ function refreshAll() {
   resizeCanvas();
   render();
   updateReadouts(hoverSog);
-  buildPredictionTable();
+  buildHistoryTable();
 }
 
 export function openPanel() {
@@ -600,25 +472,19 @@ if (canvas) {
     render();
     updateReadouts(v);
 
-    const fit333 = computeFit("333"), fit334 = computeFit("334");
-    const y333 = fit333 ? Math.max(0, fit333.at(v)) : null;
-    const y334 = fit334 ? Math.max(0, fit334.at(v)) : null;
-    const s333 = fit333 ? fit333.stdAt(v) : null;
-    const s334 = fit334 ? fit334.stdAt(v) : null;
-    const currentSog = drag.lastSog !== null ? drag.lastSog : 0;
-    const observedMax = Math.max(currentSog, Number.isFinite(drag.sogMax) ? drag.sogMax : currentSog);
-    const stateLabel = v <= observedMax ? "observed fit" : "predicted";
+    const p333 = drag.enabled["333"] ? nearestHistoryPoint("333", v) : null;
+    const p334 = drag.enabled["334"] ? nearestHistoryPoint("334", v) : null;
 
     tooltip.style.display = "block";
     tooltip.style.left = Math.min(pxv + 14, cssW - 215) + "px";
-    const anchorY = Math.max(y333 || 0, y334 || 0);
+    const anchorY = Math.max(p333 ? p333.y : 0, p334 ? p334.y : 0);
     const yToPxLocal = (y) => a.y1 - (y / axisBounds().yMax) * a.h;
     tooltip.style.top = (yToPxLocal(anchorY) - 10) + "px";
     tooltip.innerHTML =
       `<div class="row"><span class="k">SOG</span><span class="v">${v.toFixed(2)} kn</span></div>` +
-      `<div class="row"><span class="k" style="color:var(--red)">TMS333</span><span class="v">${y333 !== null ? y333.toFixed(0) + " ±" + s333.toFixed(0) + " m" : "—"}</span></div>` +
-      `<div class="row"><span class="k" style="color:var(--green)">TMS334</span><span class="v">${y334 !== null ? y334.toFixed(0) + " ±" + s334.toFixed(0) + " m" : "—"}</span></div>` +
-      `<div class="row"><span class="k">${stateLabel}</span><span class="v"></span></div>`;
+      `<div class="row"><span class="k" style="color:var(--red)">TMS333</span><span class="v">${p333 ? p333.y.toFixed(0) + " m (n=" + p333.n + ")" : "—"}</span></div>` +
+      `<div class="row"><span class="k" style="color:var(--green)">TMS334</span><span class="v">${p334 ? p334.y.toFixed(0) + " m (n=" + p334.n + ")" : "—"}</span></div>` +
+      `<div class="row"><span class="k">nearest measured speed</span><span class="v"></span></div>`;
   });
   canvas.addEventListener("mouseleave", () => {
     hoverSog = null;

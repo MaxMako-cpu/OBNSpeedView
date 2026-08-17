@@ -4,7 +4,7 @@
 import { state } from './state.js';
 import { fmtHMS, fmtHM, fmtDate } from './utils.js';
 import { showMessageModal, setStatus } from './modals.js';
-import { fitRowsForBeacon, beaconConfig, getForceInputs } from './drag-analysis.js';
+import { historyForBeacon, beaconConfig, getForceInputs } from './drag-analysis.js';
 
 // window.jspdf is loaded globally via <script> from CDN.
 
@@ -67,11 +67,11 @@ function drawReportPanel(cx,w,h,opts){
 
 function seriesPoints(rows,field,m0,m1){const out=[];for(const r of rows){if(r.epoch<m0||r.epoch>m1)continue;out.push({epoch:r.epoch,val:r[field]});}return out;}
 
-// Vessel SOG vs TMS LP Range scatter + fitted trend for a region's rows —
-// same derivation (js/drag-analysis.js::fitRowsForBeacon) as the live Drag
-// Analysis panel, just region-scoped instead of whole-session. LP Range
-// (4DNav) is already the horizontal beacon-to-transceiver distance, so this
-// is LP Range itself, smoothed — no geometric transform against depth.
+// Vessel SOG vs TMS LP Range scatter + real per-speed average for a
+// region's rows — same derivation (js/drag-analysis.js::historyForBeacon)
+// as the live Drag Analysis panel, just region-scoped instead of
+// whole-session. No fitting or projection: the line connects only the
+// speeds actually measured in this window.
 function drawDragAnalysisPanel(cx,w,h,rows){
   const padL=46,padR=20,padT=22,padB=40,plotW=w-padL-padR,plotH=h-padT-padB;
   cx.fillStyle="#ffffff";cx.fillRect(0,0,w,h);
@@ -79,7 +79,7 @@ function drawDragAnalysisPanel(cx,w,h,rows){
   cx.fillText("DRAG ANALYSIS — Vessel SOG vs LP Range",2,11);
 
   const beacons=beaconConfig();
-  const results=beacons.map(bd=>({bd,...fitRowsForBeacon(rows,bd.key)}));
+  const results=beacons.map(bd=>({bd,...historyForBeacon(rows,bd.key)}));
   let sogMax=0,yMax=0,anyPoints=false;
   for(const r of results)for(const p of r.points){anyPoints=true;if(p.v>sogMax)sogMax=p.v;if(p.y>yMax)yMax=p.y;}
 
@@ -97,14 +97,13 @@ function drawDragAnalysisPanel(cx,w,h,rows){
   cx.textAlign="center";cx.textBaseline="top";
   for(let i=0;i<=4;i++){const v=(i/4)*sogMax,px=xP(v);cx.beginPath();cx.moveTo(px,padT);cx.lineTo(px,padT+plotH);cx.stroke();cx.fillText(v.toFixed(1),px,padT+plotH+4);}
 
-  for(const{bd,points,fit}of results){
-    cx.save();cx.fillStyle=bd.color;cx.globalAlpha=0.45;
-    for(const p of points){const px=xP(p.v),py=yP(p.y);cx.beginPath();cx.arc(px,py,1.4,0,Math.PI*2);cx.fill();}
+  for(const{bd,points,history}of results){
+    cx.save();cx.fillStyle=bd.color;cx.globalAlpha=0.35;
+    for(const p of points){const px=xP(p.v),py=yP(p.y);cx.beginPath();cx.arc(px,py,1.2,0,Math.PI*2);cx.fill();}
     cx.restore();
-    if(fit){
-      cx.strokeStyle=bd.color;cx.lineWidth=1.3;cx.lineJoin="round";cx.beginPath();
-      let started=false;const step=Math.max(sogMax/120,0.01);
-      for(let v=0;v<=sogMax;v+=step){const y=Math.max(0,fit.at(v)),px=xP(v),py=yP(y);if(!started){cx.moveTo(px,py);started=true;}else cx.lineTo(px,py);}
+    if(history.length>1){
+      cx.strokeStyle=bd.color;cx.lineWidth=1.4;cx.lineJoin="round";cx.beginPath();
+      history.forEach((p,i)=>{const px=xP(p.v),py=yP(p.y);if(i===0)cx.moveTo(px,py);else cx.lineTo(px,py);});
       cx.stroke();
     }
   }

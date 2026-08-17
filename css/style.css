@@ -928,7 +928,6 @@ input[type=file] { display: none; }
 .drag-legend-line { width: 18px; height: 0; border-top-width: 2px; }
 .drag-legend-line.solid { border-top-style: solid; border-top-color: var(--text-dim); }
 .drag-legend-line.dashed { border-top-style: dashed; border-top-color: var(--text-dim); }
-.drag-legend-band { width: 18px; height: 10px; background: rgba(216,230,242,0.18); border-radius: 2px; }
 .drag-legend-div { width: 1px; height: 14px; background: var(--grid); }
 .drag-legend-toggle { cursor: pointer; user-select: none; }
 .drag-legend-toggle input[type="checkbox"] { accent-color: var(--cyan); cursor: pointer; margin: 0; width: 15px; height: 15px; }
@@ -988,16 +987,6 @@ input[type=file] { display: none; }
 .drag-ro-item.accent-334 .val { color: var(--green); }
 .drag-ro-item.accent-amber .val { color: var(--amber); }
 
-.drag-sens-row {
-  display: flex; justify-content: space-between; align-items: baseline;
-  font-size: 13px; padding: 6px 0;
-  border-top: 1px solid var(--grid-soft);
-}
-.drag-sens-row:first-of-type { border-top: none; }
-.drag-sens-row .lbl { color: var(--text-dim); display: flex; align-items: center; gap: 6px; }
-.drag-sens-row .dot { width: 8px; height: 8px; border-radius: 50%; }
-.drag-sens-row .figure { font-variant-numeric: tabular-nums; font-weight: 700; }
-
 .drag-input-row {
   display: flex; align-items: center; justify-content: space-between;
   gap: 10px; padding: 7px 0;
@@ -1038,8 +1027,8 @@ input[type=file] { display: none; }
 
 .drag-predict-card { flex: 1; display: flex; flex-direction: column; min-height: 160px; }
 .drag-predict-scroll { flex: 1; overflow-y: auto; min-height: 0; margin-top: 2px; }
-#drag-predict-table { width: 100%; border-collapse: collapse; font-size: 13px; }
-#drag-predict-table thead th {
+#drag-history-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+#drag-history-table thead th {
   position: sticky; top: 0;
   background: var(--panel-2);
   text-align: right;
@@ -1048,18 +1037,18 @@ input[type=file] { display: none; }
   padding: 5px 6px 9px;
   border-bottom: 1px solid var(--grid);
 }
-#drag-predict-table thead th:first-child { text-align: left; }
-#drag-predict-table td {
+#drag-history-table thead th:first-child { text-align: left; }
+#drag-history-table td {
   padding: 6px 6px;
   text-align: right;
   font-variant-numeric: tabular-nums;
   border-bottom: 1px solid var(--grid-soft);
 }
-#drag-predict-table td:first-child { text-align: left; color: var(--text-dim); }
-#drag-predict-table td.c333 { color: var(--red); }
-#drag-predict-table td.c334 { color: var(--green); }
-#drag-predict-table tr.now-row td { color: var(--amber); font-weight: 700; }
-#drag-predict-table tr.now-row { background: rgba(255,180,84,0.06); }
+#drag-history-table td:first-child { text-align: left; color: var(--text-dim); }
+#drag-history-table td.c333 { color: var(--red); }
+#drag-history-table td.c334 { color: var(--green); }
+#drag-history-table tr.now-row td { color: var(--amber); font-weight: 700; }
+#drag-history-table tr.now-row { background: rgba(255,180,84,0.06); }
 .drag-predict-scroll::-webkit-scrollbar { width: 6px; }
 .drag-predict-scroll::-webkit-scrollbar-thumb { background: var(--grid); border-radius: 3px; }
 

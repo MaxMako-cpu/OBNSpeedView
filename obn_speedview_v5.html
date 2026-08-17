@@ -69,7 +69,7 @@
       <button class="tbtn success" id="btn-lp-live" title="Live LP Range monitor">LP LIVE</button>
       <button class="tbtn" id="btn-lp-decl">LP DECL ALERT</button>
       <div style="width:1px;height:22px;background:var(--grid);flex-shrink:0;margin:0 2px;"></div>
-      <button class="tbtn" id="btn-drag-analysis" title="Vessel speed vs TMS LP Range correlation, live &amp; predicted">DRAG ANALYSIS</button>
+      <button class="tbtn" id="btn-drag-analysis" title="Vessel speed vs TMS LP Range history, based on real measured data">DRAG ANALYSIS</button>
       <div style="width:1px;height:22px;background:var(--grid);flex-shrink:0;margin:0 2px;"></div>
       <button class="tbtn" id="btn-node-fixes">NODE FIXES</button>
       <div style="width:1px;height:22px;background:var(--grid);flex-shrink:0;margin:0 2px;"></div>
@@ -375,18 +375,16 @@
           <div id="drag-tooltip" class="drag-tooltip"></div>
         </div>
         <div class="drag-legend-row">
-          <label class="drag-legend-item drag-legend-toggle" title="Untick when this TMS is on deck — its LP Range is corrupt while out of the water, so this stops it polluting the fit">
+          <label class="drag-legend-item drag-legend-toggle" title="Untick when this TMS is on deck — its LP Range is corrupt while out of the water, so this stops it polluting the history">
             <input type="checkbox" id="drag-toggle-333" checked>
             <span class="drag-legend-swatch" style="background:var(--red);box-shadow:0 0 6px var(--red-glow);"></span>TMS333
           </label>
-          <label class="drag-legend-item drag-legend-toggle" title="Untick when this TMS is on deck — its LP Range is corrupt while out of the water, so this stops it polluting the fit">
+          <label class="drag-legend-item drag-legend-toggle" title="Untick when this TMS is on deck — its LP Range is corrupt while out of the water, so this stops it polluting the history">
             <input type="checkbox" id="drag-toggle-334" checked>
             <span class="drag-legend-swatch" style="background:var(--green);box-shadow:0 0 6px var(--green-glow);"></span>TMS334
           </label>
           <div class="drag-legend-div"></div>
-          <div class="drag-legend-item"><span class="drag-legend-line solid"></span>Observed fit</div>
-          <div class="drag-legend-item"><span class="drag-legend-line dashed"></span>Predicted</div>
-          <div class="drag-legend-item" title="Prediction-interval band — widens the further a speed is from the weighted center of observed data"><span class="drag-legend-band"></span>&plusmn;1&sigma; band</div>
+          <div class="drag-legend-item" title="Dot size = how many samples back that average — bigger dot, more confidence"><span class="drag-legend-line solid"></span>Measured history</div>
           <div class="drag-legend-div"></div>
           <div class="drag-legend-item"><span class="drag-legend-swatch" style="background:var(--amber);box-shadow:0 0 6px var(--amber-glow);"></span>Current speed</div>
         </div>
@@ -401,8 +399,6 @@
             <div class="drag-ro-item accent-333"><div class="name">TMS333 LP Range</div><div class="val" id="drag-ro-r333">&mdash;<span class="unit">m</span></div></div>
             <div class="drag-ro-item accent-334"><div class="name">TMS334 LP Range</div><div class="val" id="drag-ro-r334">&mdash;<span class="unit">m</span></div></div>
           </div>
-          <div class="drag-sens-row"><div class="lbl"><span class="dot" style="background:var(--red);"></span>333 sensitivity</div><div class="figure" id="drag-sens-333">&mdash;</div></div>
-          <div class="drag-sens-row"><div class="lbl"><span class="dot" style="background:var(--green);"></span>334 sensitivity</div><div class="figure" id="drag-sens-334">&mdash;</div></div>
         </div>
 
         <div class="drag-card">
@@ -420,11 +416,11 @@
         </div>
 
         <div class="drag-card drag-predict-card">
-          <div class="drag-card-title">Prediction &mdash; LP Range, +0.1kt steps</div>
+          <div class="drag-card-title">History &mdash; LP Range by speed</div>
           <div class="drag-predict-scroll">
-            <table id="drag-predict-table">
-              <thead><tr><th>SOG</th><th>333 (m)</th><th>334 (m)</th></tr></thead>
-              <tbody id="drag-predict-tbody"></tbody>
+            <table id="drag-history-table">
+              <thead><tr><th>SOG</th><th>333</th><th>334</th></tr></thead>
+              <tbody id="drag-history-tbody"></tbody>
             </table>
           </div>
         </div>
@@ -432,7 +428,7 @@
     </div>
 
     <div class="drag-footer">
-      <span>Fit: Range vs SOG&sup2; weighted regression, recent samples weighted more (15min half-life) &middot; shaded band = &plusmn;1&sigma; prediction interval</span>
+      <span>Every value is a real measured average at that speed &middot; nothing modeled or projected &middot; &ldquo;m&middot;n&rdquo; = average range, sample count</span>
       <span id="drag-footer-n">&mdash;</span>
     </div>
   </div>
