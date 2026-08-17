@@ -37,6 +37,7 @@ function freshBeaconState() {
     ring: [],
     window: [],
     lastEpoch: null,
+    lastFiltered: null, // most recent real (smoothed) horizontal offset — used for the "now" readout
     n: 0,
     S0: 0, S1: 0, S2: 0, S3: 0, S4: 0, T0: 0, T1: 0, T2: 0,
   };
@@ -87,6 +88,7 @@ function ingestPoint(key, sog, lpRange, lpVdist, epoch) {
   const filtered = b.window.reduce((a, v) => a + v, 0) / b.window.length;
 
   b.lastEpoch = epoch;
+  b.lastFiltered = filtered;
 
   // Running sums for an O(1)-per-sample quadratic least-squares fit.
   const v = sog, v2 = v * v, v3 = v2 * v, v4 = v2 * v2;
@@ -236,7 +238,7 @@ const inArea  = document.getElementById("drag-in-area");
 const predictTbody = document.getElementById("drag-predict-tbody");
 const footerN = document.getElementById("drag-footer-n");
 
-const MARGIN = { top: 18, right: 20, bottom: 34, left: 52 };
+const MARGIN = { top: 22, right: 24, bottom: 42, left: 62 };
 let cssW = 0, cssH = 0, dpr = window.devicePixelRatio || 1;
 let panelOpen = false;
 let hoverSog = null;
@@ -298,39 +300,39 @@ function render() {
   ctx.setLineDash([4, 4]); ctx.lineWidth = 1.2;
   ctx.beginPath(); ctx.moveTo(px0, a.y0); ctx.lineTo(px0, a.y1); ctx.stroke();
   ctx.setLineDash([]);
-  ctx.fillStyle = "#ffb454"; ctx.font = "9.5px 'JetBrains Mono', monospace";
+  ctx.fillStyle = "#ffb454"; ctx.font = "12px 'JetBrains Mono', monospace";
   ctx.textAlign = "left";
-  ctx.fillText("CURRENT  " + currentSog.toFixed(2) + " KN", px0 + 6, a.y0 + 12);
+  ctx.fillText("CURRENT  " + currentSog.toFixed(2) + " KN", px0 + 8, a.y0 + 15);
   ctx.fillStyle = "rgba(255,180,84,0.75)";
-  ctx.fillText("PREDICTED →", px0 + 6, a.y1 - 8);
+  ctx.fillText("PREDICTED →", px0 + 8, a.y1 - 10);
   ctx.restore();
 
   // grid
   ctx.save();
   ctx.strokeStyle = "rgba(23,48,73,0.55)";
-  ctx.fillStyle = "#6f8aa3";
-  ctx.font = "10px 'JetBrains Mono', monospace";
+  ctx.fillStyle = "#8fa8bd";
+  ctx.font = "12.5px 'JetBrains Mono', monospace";
   ctx.lineWidth = 1;
   ctx.textAlign = "right"; ctx.textBaseline = "middle";
   const yStep = yMax > 600 ? 150 : yMax > 200 ? 50 : 20;
   for (let y = 0; y <= yMax; y += yStep) {
     const py = yToPx(y);
     ctx.beginPath(); ctx.moveTo(a.x0, py); ctx.lineTo(a.x1, py); ctx.stroke();
-    ctx.fillText(y.toFixed(0), a.x0 - 8, py);
+    ctx.fillText(y.toFixed(0), a.x0 - 10, py);
   }
   ctx.textAlign = "center"; ctx.textBaseline = "top";
   const vStep = vMax > 4 ? 1 : 0.5;
   for (let v = 0; v <= vMax + 1e-6; v += vStep) {
     const pxv = xToPx(v);
     ctx.beginPath(); ctx.moveTo(pxv, a.y0); ctx.lineTo(pxv, a.y1); ctx.stroke();
-    ctx.fillText(v.toFixed(1), pxv, a.y1 + 7);
+    ctx.fillText(v.toFixed(1), pxv, a.y1 + 8);
   }
-  ctx.save(); ctx.translate(14, a.y0 + a.h / 2); ctx.rotate(-Math.PI / 2);
-  ctx.font = "9.5px 'JetBrains Mono', monospace"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
-  ctx.fillText("LP RANGE (M)", 0, 0);
+  ctx.save(); ctx.translate(16, a.y0 + a.h / 2); ctx.rotate(-Math.PI / 2);
+  ctx.font = "11.5px 'JetBrains Mono', monospace"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  ctx.fillText("HORIZ. OFFSET (M)", 0, 0);
   ctx.restore();
-  ctx.textAlign = "center"; ctx.textBaseline = "alphabetic"; ctx.font = "9.5px 'JetBrains Mono', monospace";
-  ctx.fillText("VESSEL SOG (KN)", a.x0 + a.w / 2, cssH - 6);
+  ctx.textAlign = "center"; ctx.textBaseline = "alphabetic"; ctx.font = "11.5px 'JetBrains Mono', monospace";
+  ctx.fillText("VESSEL SOG (KN)", a.x0 + a.w / 2, cssH - 7);
   ctx.restore();
 
   ctx.save();
@@ -399,14 +401,23 @@ function render() {
 }
 
 function updateReadouts(sogOverride) {
-  const sog = sogOverride !== null && sogOverride !== undefined ? sogOverride : (drag.lastSog !== null ? drag.lastSog : 0);
+  const hovering = sogOverride !== null && sogOverride !== undefined;
+  const sog = hovering ? sogOverride : (drag.lastSog !== null ? drag.lastSog : 0);
   const fit333 = computeFit("333");
   const fit334 = computeFit("334");
 
+  // Not hovering ("now"): show the real last-observed/smoothed offset, not a
+  // regression estimate — early in a session or with noisy data the fit can
+  // read differently from what was actually just measured. While hovering
+  // elsewhere on the chart, there's no "real" sample at that speed, so the
+  // fit is the only thing that can answer "what would it be at this speed".
+  const r333 = hovering ? (fit333 ? Math.max(0, fit333.at(sog)) : null) : drag.beacons["333"].lastFiltered;
+  const r334 = hovering ? (fit334 ? Math.max(0, fit334.at(sog)) : null) : drag.beacons["334"].lastFiltered;
+
   if (roSog) roSog.innerHTML = sog.toFixed(2) + '<span class="unit">kn</span>';
   if (roForce) roForce.innerHTML = (estimateForce(sog) / 1000).toFixed(2) + '<span class="unit">kN</span>';
-  if (roR333) roR333.innerHTML = !drag.enabled["333"] ? "OFF" : fit333 ? Math.max(0, fit333.at(sog)).toFixed(0) + '<span class="unit">m</span>' : '—';
-  if (roR334) roR334.innerHTML = !drag.enabled["334"] ? "OFF" : fit334 ? Math.max(0, fit334.at(sog)).toFixed(0) + '<span class="unit">m</span>' : '—';
+  if (roR333) roR333.innerHTML = !drag.enabled["333"] ? "OFF" : (r333 !== null && r333 !== undefined) ? r333.toFixed(0) + '<span class="unit">m</span>' : '—';
+  if (roR334) roR334.innerHTML = !drag.enabled["334"] ? "OFF" : (r334 !== null && r334 !== undefined) ? r334.toFixed(0) + '<span class="unit">m</span>' : '—';
   if (sens333) sens333.textContent = !drag.enabled["333"] ? "beacon switched off" : fit333 ? fmtSlope(fit333.slopeAt(sog)) : "insufficient data";
   if (sens334) sens334.textContent = !drag.enabled["334"] ? "beacon switched off" : fit334 ? fmtSlope(fit334.slopeAt(sog)) : "insufficient data";
   if (footerN) footerN.textContent = (drag.beacons["333"].n + drag.beacons["334"].n) + " observed samples this session";
@@ -520,14 +531,14 @@ if (canvas) {
     const stateLabel = v <= observedMax ? "observed fit" : "predicted";
 
     tooltip.style.display = "block";
-    tooltip.style.left = Math.min(pxv + 14, cssW - 150) + "px";
+    tooltip.style.left = Math.min(pxv + 14, cssW - 190) + "px";
     const anchorY = Math.max(y333 || 0, y334 || 0);
     const yToPxLocal = (y) => a.y1 - (y / axisBounds().yMax) * a.h;
     tooltip.style.top = (yToPxLocal(anchorY) - 10) + "px";
     tooltip.innerHTML =
       `<div class="row"><span class="k">SOG</span><span class="v">${v.toFixed(2)} kn</span></div>` +
-      `<div class="row"><span class="k" style="color:var(--tms333)">TMS333</span><span class="v">${y333 !== null ? y333.toFixed(0) + " m" : "—"}</span></div>` +
-      `<div class="row"><span class="k" style="color:var(--tms334)">TMS334</span><span class="v">${y334 !== null ? y334.toFixed(0) + " m" : "—"}</span></div>` +
+      `<div class="row"><span class="k" style="color:var(--red)">TMS333</span><span class="v">${y333 !== null ? y333.toFixed(0) + " m" : "—"}</span></div>` +
+      `<div class="row"><span class="k" style="color:var(--green)">TMS334</span><span class="v">${y334 !== null ? y334.toFixed(0) + " m" : "—"}</span></div>` +
       `<div class="row"><span class="k">${stateLabel}</span><span class="v"></span></div>`;
   });
   canvas.addEventListener("mouseleave", () => {
