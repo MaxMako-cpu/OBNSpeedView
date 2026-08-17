@@ -386,6 +386,7 @@
           <div class="drag-legend-div"></div>
           <div class="drag-legend-item"><span class="drag-legend-line solid"></span>Observed fit</div>
           <div class="drag-legend-item"><span class="drag-legend-line dashed"></span>Predicted</div>
+          <div class="drag-legend-item" title="Prediction-interval band — widens the further a speed is from the weighted center of observed data"><span class="drag-legend-band"></span>&plusmn;1&sigma; band</div>
           <div class="drag-legend-div"></div>
           <div class="drag-legend-item"><span class="drag-legend-swatch" style="background:var(--amber);box-shadow:0 0 6px var(--amber-glow);"></span>Current speed</div>
         </div>
@@ -431,7 +432,7 @@
     </div>
 
     <div class="drag-footer">
-      <span>Fit: 2nd-order least-squares on this session's observed samples &middot; refits continuously as new data arrives</span>
+      <span>Fit: Range vs SOG&sup2; weighted regression, recent samples weighted more (15min half-life) &middot; shaded band = &plusmn;1&sigma; prediction interval</span>
       <span id="drag-footer-n">&mdash;</span>
     </div>
   </div>

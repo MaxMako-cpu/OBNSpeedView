@@ -11,25 +11,44 @@
      that it was a slant range needing a Pythagorean split against LP
      Vertical Distance — it isn't, so there is no geometric transform
      here at all). This is LP Range itself, smoothed over a small
-     sample-count window (DRAG_FILTER_WINDOW), mirroring the same
-     derivation the backend also computes for its own "live" WS message
-     fields. Recomputed independently here (rather than consumed from the
-     WS message) so live and loaded-archive rows go through the exact
-     same code path — archived rows never carry the backend's derived
-     fields since those aren't persisted.
+     sample-count window (DRAG_FILTER_WINDOW) to cut sample noise before
+     it feeds the fit, mirroring the same derivation the backend also
+     computes for its own "live" WS message fields. Recomputed
+     independently here (rather than consumed from the WS message) so
+     live and loaded-archive rows go through the exact same code path —
+     archived rows never carry the backend's derived fields since those
+     aren't persisted.
    - A gap between valid samples > DRAG_MAX_GAP_SEC resets that beacon's
      smoothing window (fix dropout — don't average across the gap).
-   - The fit (quadratic least-squares) is maintained via running sums
-     updated in O(1) per sample, so it reflects the *entire* session, not
-     a windowed subset. A separate capped ring buffer holds raw points
-     only for the scatter cloud's visual texture — decoupled from the fit.
+   - The live fit is a weighted linear regression of LP Range on SOG^2
+     (not SOG) — matching the drag-force relationship (F ~ v^2) rather
+     than an unconstrained free-form quadratic that could curve back
+     down at high speed or swing wildly on extrapolation. The fitted
+     slope k is clamped >= 0: LP Range increasing with speed is the only
+     physically sane direction for a towed body.
+   - Weighting decays exponentially by elapsed time (DRAG_FIT_HALFLIFE_SEC),
+     applied to the running sums on every sample in O(1), so the fit
+     tracks current conditions — a sample from hours ago fades out rather
+     than permanently anchoring the curve alongside brand-new data.
+   - Every prediction carries a standard-error estimate (the textbook
+     prediction-interval formula for weighted simple linear regression,
+     computed from the same running sums) that grows the further a speed
+     is from the weighted center of what's actually been observed — so
+     "we're extrapolating past real data" is visible, not silently
+     presented as equally precise as the fitted region.
+   - Running sums are maintained in O(1) per sample, decayed rather than
+     reset, so the fit is always current without rescanning history. A
+     separate capped ring buffer holds raw points only for the scatter
+     cloud's visual texture — decoupled from the fit itself.
    ====================================================================== */
-const DRAG_FILTER_WINDOW = 5;     // samples
-const DRAG_MAX_GAP_SEC   = 5.0;   // seconds
-const DRAG_RING_CAP      = 3000;  // raw scatter points kept per beacon
-const PREDICT_HORIZON_KT = 2.0;   // how far past current/max-observed speed to predict
-const PREDICT_STEP_KT    = 0.1;
-const RHO                = 1025;  // seawater density, kg/m^3 — fixed
+const DRAG_FILTER_WINDOW    = 5;     // samples
+const DRAG_MAX_GAP_SEC      = 5.0;   // seconds
+const DRAG_RING_CAP         = 3000;  // raw scatter points kept per beacon
+const DRAG_FIT_HALFLIFE_SEC = 900;   // 15 min — how fast the live fit forgets old samples
+const DRAG_DECAY_LAMBDA     = Math.LN2 / DRAG_FIT_HALFLIFE_SEC;
+const PREDICT_HORIZON_KT    = 2.0;   // how far past current/max-observed speed to predict
+const PREDICT_STEP_KT       = 0.1;
+const RHO                   = 1025;  // seawater density, kg/m^3 — fixed
 
 const BEACONS = [
   { key: "333", label: "TMS333", rangeField: "TMS333_LP Range (m)", color: "#ff4d6a", glow: "rgba(255,77,106,0.9)" },
@@ -42,8 +61,12 @@ function freshBeaconState() {
     window: [],
     lastEpoch: null,
     lastFiltered: null, // most recent real (smoothed) LP Range — used for the "now" readout
-    n: 0,
-    S0: 0, S1: 0, S2: 0, S3: 0, S4: 0, T0: 0, T1: 0, T2: 0,
+    n: 0,               // raw sample count ever seen (gates "insufficient data", not fit-weighted)
+    // Exponentially-decayed weighted sums for the y = baseline + k*v^2 fit
+    // (u = v^2). Decayed by elapsed time on every ingest — see
+    // DRAG_FIT_HALFLIFE_SEC — so old samples fade rather than persisting
+    // at full weight forever.
+    Sw: 0, Su: 0, Suu: 0, Sy: 0, Suy: 0, Syy: 0,
   };
 }
 
@@ -76,25 +99,40 @@ function resetAll() {
 
 function ingestPoint(key, sog, lpRange, epoch) {
   const b = drag.beacons[key];
+  const dt = (Number.isFinite(epoch) && b.lastEpoch !== null) ? Math.max(0, epoch - b.lastEpoch) : null;
 
-  if (Number.isFinite(epoch) && b.lastEpoch !== null && (epoch - b.lastEpoch) > DRAG_MAX_GAP_SEC) {
-    b.window.length = 0;
+  if (dt !== null && dt > DRAG_MAX_GAP_SEC) {
+    b.window.length = 0; // dropout — don't average pre/post-gap raw samples together
   }
 
   b.window.push(lpRange);
   if (b.window.length > DRAG_FILTER_WINDOW) b.window.shift();
   const filtered = b.window.reduce((a, v) => a + v, 0) / b.window.length;
 
+  // Decay the fit's running sums by elapsed time before adding this sample,
+  // so older contributions shrink smoothly instead of being remembered at
+  // full weight forever. A gap large enough to also reset the smoothing
+  // window above decays this by the same (large) factor automatically —
+  // no separate gap-handling needed here.
+  if (dt !== null) {
+    const decay = Math.exp(-DRAG_DECAY_LAMBDA * dt);
+    b.Sw *= decay; b.Su *= decay; b.Suu *= decay;
+    b.Sy *= decay; b.Suy *= decay; b.Syy *= decay;
+  }
+
+  const u = sog * sog;
+  b.Sw += 1;
+  b.Su += u;
+  b.Suu += u * u;
+  b.Sy += filtered;
+  b.Suy += u * filtered;
+  b.Syy += filtered * filtered;
+  b.n += 1;
+
   b.lastEpoch = epoch;
   b.lastFiltered = filtered;
 
-  // Running sums for an O(1)-per-sample quadratic least-squares fit.
-  const v = sog, v2 = v * v, v3 = v2 * v, v4 = v2 * v2;
-  b.n += 1;
-  b.S0 += 1; b.S1 += v; b.S2 += v2; b.S3 += v3; b.S4 += v4;
-  b.T0 += filtered; b.T1 += v * filtered; b.T2 += v2 * filtered;
-
-  b.ring.push({ v, y: filtered });
+  b.ring.push({ v: sog, y: filtered });
   if (b.ring.length > DRAG_RING_CAP) b.ring.shift();
 
   if (sog < drag.sogMin) drag.sogMin = sog;
@@ -132,43 +170,62 @@ export function rebuildFromRows(rows) {
   if (panelOpen) { render(); updateReadouts(hoverSog); buildPredictionTable(); }
 }
 
-// Quadratic fit y = a + b*v + c*v^2 via Cramer's rule on the 3x3 normal-equations
-// system, from pre-accumulated sums. Returns null if the system is
-// near-singular (too little speed variation to solve stably).
-function solveQuadraticFromSums(S0, S1, S2, S3, S4, T0, T1, T2, n) {
-  const A = [[S0, S1, S2], [S1, S2, S3], [S2, S3, S4]];
-  const B = [T0, T1, T2];
-  function det3(m) {
-    return m[0][0] * (m[1][1] * m[2][2] - m[1][2] * m[2][1])
-         - m[0][1] * (m[1][0] * m[2][2] - m[1][2] * m[2][0])
-         + m[0][2] * (m[1][0] * m[2][1] - m[1][1] * m[2][0]);
+// Weighted simple linear regression of y (LP Range) on u = v^2 (SOG^2) —
+// y = baseline + k*u — from pre-accumulated (possibly decayed) sums.
+// Physically constrained: k is clamped >= 0 (LP Range can't physically
+// decrease with speed for a towed body); if the unconstrained fit wants
+// k < 0, it's refit with k pinned to 0 (plain weighted mean — "no speed
+// dependence detected yet") rather than reporting a backwards slope.
+// stdAt(v) is the standard prediction-interval formula for weighted simple
+// linear regression: it's smallest near the weighted center of the speeds
+// actually observed and grows the further a speed is from that center in
+// either direction — i.e. it's honest about extrapolation risk.
+// Returns null if there's too little speed^2 variation to solve stably.
+function solveDragModelFromSums(Sw, Su, Suu, Sy, Suy, Syy) {
+  if (!(Sw > 1e-6)) return null;
+  const D = Sw * Suu - Su * Su; // = Sw * Sxx
+  if (!Number.isFinite(D) || Math.abs(D) < 1e-6) return null; // near-singular — not enough speed variation
+
+  let baseline = (Suu * Sy - Su * Suy) / D;
+  let k = (Sw * Suy - Su * Sy) / D;
+  if (!Number.isFinite(baseline) || !Number.isFinite(k)) return null;
+
+  if (k < 0) {
+    k = 0;
+    baseline = Sy / Sw;
   }
-  const D = det3(A);
-  if (!Number.isFinite(D) || Math.abs(D) < 1e-9) return null; // near-singular — not enough speed variation
-  function withCol(col) {
-    const m = A.map(r => r.slice());
-    for (let i = 0; i < 3; i++) m[i][col] = B[i];
-    return det3(m);
-  }
-  const a = withCol(0) / D, c1 = withCol(1) / D, c2 = withCol(2) / D;
-  if (![a, c1, c2].every(Number.isFinite)) return null;
+
+  const rss = Syy - 2 * (baseline * Sy + k * Suy) + baseline * baseline * Sw + 2 * baseline * k * Su + k * k * Suu;
+  const residualVar = Math.max(0, rss / Sw);
+  const xbar = Su / Sw;
+  const Sxx = D / Sw;
+  if (!(Sxx > 1e-6)) return null;
+
   return {
-    n,
-    at: (v) => a + c1 * v + c2 * v * v,
-    slopeAt: (v) => c1 + 2 * c2 * v,
+    n: Sw,
+    at: (v) => baseline + k * v * v,
+    slopeAt: (v) => 2 * k * v,
+    stdAt: (v) => {
+      const u = v * v;
+      const variance = residualVar * (1 + 1 / Sw + ((u - xbar) * (u - xbar)) / Sxx);
+      return Math.sqrt(Math.max(0, variance));
+    },
   };
 }
 
-// Fit from this session's live-accumulated running sums (whole day, O(1) per sample).
+// Fit from this session's live-accumulated, exponentially-decayed running
+// sums (O(1) per sample, always current — see DRAG_FIT_HALFLIFE_SEC).
 function computeFit(key) {
   const b = drag.beacons[key];
   if (b.n < 10) return null;
-  return solveQuadraticFromSums(b.S0, b.S1, b.S2, b.S3, b.S4, b.T0, b.T1, b.T2, b.n);
+  return solveDragModelFromSums(b.Sw, b.Su, b.Suu, b.Sy, b.Suy, b.Syy);
 }
 
 // Fit from an arbitrary rows slice (e.g. a report region's time window) —
 // independent of the live session state, for one-shot use by report.js.
-// Applies the same SMA smoothing over the slice's samples in order.
+// Applies the same SMA smoothing over the slice's samples in order, but
+// unweighted/undecayed — a report region is already a fixed, user-chosen
+// window, so every sample in it counts equally rather than fading by age.
 export function fitRowsForBeacon(rows, beaconKey) {
   const bd = BEACONS.find((x) => x.key === beaconKey);
   const points = [];
@@ -184,13 +241,13 @@ export function fitRowsForBeacon(rows, beaconKey) {
     points.push({ v: sog, y: filtered });
   }
   if (points.length < 10) return { points, fit: null };
-  let S0 = 0, S1 = 0, S2 = 0, S3 = 0, S4 = 0, T0 = 0, T1 = 0, T2 = 0;
+  let Sw = 0, Su = 0, Suu = 0, Sy = 0, Suy = 0, Syy = 0;
   for (const p of points) {
-    const v = p.v, v2 = v * v, v3 = v2 * v, v4 = v2 * v2;
-    S0 += 1; S1 += v; S2 += v2; S3 += v3; S4 += v4;
-    T0 += p.y; T1 += v * p.y; T2 += v2 * p.y;
+    const u = p.v * p.v;
+    Sw += 1; Su += u; Suu += u * u;
+    Sy += p.y; Suy += u * p.y; Syy += p.y * p.y;
   }
-  return { points, fit: solveQuadraticFromSums(S0, S1, S2, S3, S4, T0, T1, T2, points.length) };
+  return { points, fit: solveDragModelFromSums(Sw, Su, Suu, Sy, Suy, Syy) };
 }
 
 export function beaconConfig() {
@@ -259,7 +316,8 @@ function axisBounds() {
     const fit = computeFit(b.key);
     if (!fit) continue;
     for (let v = 0; v <= vMax; v += vMax / 30) {
-      const y = Math.max(0, fit.at(v));
+      // Include the confidence band's upper edge so it's never clipped.
+      const y = Math.max(0, fit.at(v) + fit.stdAt(v));
       if (y > yMax) yMax = y;
     }
   }
@@ -333,6 +391,32 @@ function render() {
 
   for (const bd of BEACONS) {
     const b = drag.beacons[bd.key];
+    const fit = computeFit(bd.key);
+
+    // confidence band (±1 std, the prediction-interval formula) — drawn
+    // first so the scatter/lines/marker sit on top of it.
+    if (fit) {
+      ctx.save();
+      ctx.fillStyle = bd.color;
+      ctx.globalAlpha = 0.10;
+      ctx.beginPath();
+      const bandStep = Math.max(vMax / 100, 0.01);
+      let firstUpper = true;
+      const lowerPts = [];
+      for (let v = 0; v <= vMax + 1e-6; v += bandStep) {
+        const std = fit.stdAt(v);
+        const yHi = Math.max(0, fit.at(v) + std);
+        const yLo = Math.max(0, fit.at(v) - std);
+        const pxp = xToPx(v);
+        if (firstUpper) { ctx.moveTo(pxp, yToPx(yHi)); firstUpper = false; } else ctx.lineTo(pxp, yToPx(yHi));
+        lowerPts.push([pxp, yToPx(yLo)]);
+      }
+      for (let i = lowerPts.length - 1; i >= 0; i--) ctx.lineTo(lowerPts[i][0], lowerPts[i][1]);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+    }
+
     // scatter cloud
     ctx.save();
     ctx.fillStyle = bd.color;
@@ -343,7 +427,6 @@ function render() {
     }
     ctx.restore();
 
-    const fit = computeFit(bd.key);
     if (!fit) continue;
 
     // observed segment — solid, across the actually-observed speed range
@@ -422,7 +505,8 @@ function fmtSlope(perKt) {
 
 function fmtCell(enabled, fit, v) {
   if (!enabled) return "OFF";
-  return fit ? Math.max(0, fit.at(v)).toFixed(0) + " m" : "—";
+  if (!fit) return "—";
+  return `${Math.max(0, fit.at(v)).toFixed(0)} ±${fit.stdAt(v).toFixed(0)} m`;
 }
 
 function buildPredictionTable() {
@@ -519,19 +603,21 @@ if (canvas) {
     const fit333 = computeFit("333"), fit334 = computeFit("334");
     const y333 = fit333 ? Math.max(0, fit333.at(v)) : null;
     const y334 = fit334 ? Math.max(0, fit334.at(v)) : null;
+    const s333 = fit333 ? fit333.stdAt(v) : null;
+    const s334 = fit334 ? fit334.stdAt(v) : null;
     const currentSog = drag.lastSog !== null ? drag.lastSog : 0;
     const observedMax = Math.max(currentSog, Number.isFinite(drag.sogMax) ? drag.sogMax : currentSog);
     const stateLabel = v <= observedMax ? "observed fit" : "predicted";
 
     tooltip.style.display = "block";
-    tooltip.style.left = Math.min(pxv + 14, cssW - 190) + "px";
+    tooltip.style.left = Math.min(pxv + 14, cssW - 215) + "px";
     const anchorY = Math.max(y333 || 0, y334 || 0);
     const yToPxLocal = (y) => a.y1 - (y / axisBounds().yMax) * a.h;
     tooltip.style.top = (yToPxLocal(anchorY) - 10) + "px";
     tooltip.innerHTML =
       `<div class="row"><span class="k">SOG</span><span class="v">${v.toFixed(2)} kn</span></div>` +
-      `<div class="row"><span class="k" style="color:var(--red)">TMS333</span><span class="v">${y333 !== null ? y333.toFixed(0) + " m" : "—"}</span></div>` +
-      `<div class="row"><span class="k" style="color:var(--green)">TMS334</span><span class="v">${y334 !== null ? y334.toFixed(0) + " m" : "—"}</span></div>` +
+      `<div class="row"><span class="k" style="color:var(--red)">TMS333</span><span class="v">${y333 !== null ? y333.toFixed(0) + " ±" + s333.toFixed(0) + " m" : "—"}</span></div>` +
+      `<div class="row"><span class="k" style="color:var(--green)">TMS334</span><span class="v">${y334 !== null ? y334.toFixed(0) + " ±" + s334.toFixed(0) + " m" : "—"}</span></div>` +
       `<div class="row"><span class="k">${stateLabel}</span><span class="v"></span></div>`;
   });
   canvas.addEventListener("mouseleave", () => {
