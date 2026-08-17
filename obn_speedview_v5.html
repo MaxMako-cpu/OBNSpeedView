@@ -362,7 +362,7 @@
     <div class="drag-header">
       <div class="drag-header-mark"></div>
       <div class="drag-header-title">DRAG ANALYSIS</div>
-      <div class="drag-header-sub">Speed &middot; LP Range &middot; Drag Force, per TMS &middot; live + session history</div>
+      <div class="drag-header-sub">Speed &middot; LP Range &middot; Drag Force, per TMS &middot; live + continuous trend</div>
       <div class="drag-live-chip"><span class="dot"></span>LIVE</div>
       <div class="toolbar-spacer"></div>
       <button id="drag-panel-close">CLOSE</button>
@@ -454,29 +454,25 @@
       </div>
     </div>
 
-    <div class="drag-history-section">
-      <div class="drag-section-title">Session History &mdash; how speed has affected each metric</div>
-      <div class="drag-history-charts">
-        <div class="drag-history-card">
-          <h4>LP Range vs Speed</h4>
-          <div class="drag-history-chart-wrap"><canvas id="drag-chart-range"></canvas></div>
-          <div class="drag-history-trend-label">Recent trend &middot; last 15 min</div>
-          <div class="drag-history-trend-wrap"><canvas id="drag-chart-range-trend"></canvas></div>
-          <div class="drag-history-legend">
+    <div class="drag-trend-section">
+      <div class="drag-section-title">Trend <span class="drag-live-tag"><span class="dot"></span>updating continuously</span></div>
+      <div class="drag-trend-charts">
+        <div class="drag-trend-card">
+          <div class="drag-trend-card-head"><h4>LP Range</h4><span class="drag-now-val" id="drag-now-range">&mdash;</span></div>
+          <div class="drag-trend-chart-wrap"><canvas id="drag-chart-range"></canvas></div>
+          <div class="drag-trend-legend">
             <div class="li"><span class="dot" style="background:var(--red);"></span>TMS333</div>
             <div class="li"><span class="dot" style="background:var(--green);"></span>TMS334</div>
-            <div class="li drag-history-legend-note">dot size = sample count &middot; real data only, no projection</div>
+            <div class="li drag-trend-legend-note">last 15 min &middot; real measured values, no fitting</div>
           </div>
         </div>
-        <div class="drag-history-card">
-          <h4>Drag Force vs Speed</h4>
-          <div class="drag-history-chart-wrap"><canvas id="drag-chart-force"></canvas></div>
-          <div class="drag-history-trend-label">Recent trend &middot; last 15 min</div>
-          <div class="drag-history-trend-wrap"><canvas id="drag-chart-force-trend"></canvas></div>
-          <div class="drag-history-legend">
+        <div class="drag-trend-card">
+          <div class="drag-trend-card-head"><h4>Drag Force</h4><span class="drag-now-val" id="drag-now-force">&mdash;</span></div>
+          <div class="drag-trend-chart-wrap"><canvas id="drag-chart-force"></canvas></div>
+          <div class="drag-trend-legend">
             <div class="li"><span class="dot" style="background:var(--red);"></span>TMS333</div>
             <div class="li"><span class="dot" style="background:var(--green);"></span>TMS334</div>
-            <div class="li drag-history-legend-note">dot size = sample count &middot; real data only, no projection</div>
+            <div class="li drag-trend-legend-note">last 15 min &middot; real measured values, no fitting</div>
           </div>
         </div>
       </div>
@@ -498,7 +494,7 @@
     </div>
 
     <div class="drag-footer">
-      <span>Live values are real-time; history is real bucketed averages &mdash; nothing modeled or projected</span>
+      <span>Live values and the trend charts below are both real-time measurements &mdash; nothing modeled or projected</span>
       <span id="drag-footer-n">&mdash;</span>
     </div>
   </div>

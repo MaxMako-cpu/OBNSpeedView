@@ -1063,7 +1063,7 @@ input[type=file] { display: none; }
   flex-shrink: 0;
 }
 
-/* ---- session-history charts ---- */
+/* ---- continuous live trend charts ---- */
 .drag-section-title {
   font-size: 11.5px;
   letter-spacing: 2px;
@@ -1071,23 +1071,40 @@ input[type=file] { display: none; }
   color: var(--text-dim);
   font-weight: 700;
   padding: 6px 18px 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
-.drag-history-section {
+.drag-live-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 9.5px;
+  color: var(--green);
+  letter-spacing: 1px;
+}
+.drag-live-tag .dot {
+  width: 5px; height: 5px; border-radius: 50%;
+  background: var(--green);
+  box-shadow: 0 0 5px 1px var(--green-glow);
+  animation: pulse 1.4s ease-in-out infinite;
+}
+.drag-trend-section {
   display: flex;
   flex-direction: column;
   gap: 8px;
   flex: 1;
-  min-height: 340px;
+  min-height: 300px;
   padding: 0 18px 8px;
 }
-.drag-history-charts {
+.drag-trend-charts {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 14px;
   flex: 1;
-  min-height: 220px;
+  min-height: 240px;
 }
-.drag-history-card {
+.drag-trend-card {
   background: var(--panel-2);
   border: 1px solid var(--grid);
   border-radius: var(--radius);
@@ -1097,7 +1114,13 @@ input[type=file] { display: none; }
   gap: 8px;
   min-height: 0;
 }
-.drag-history-card h4 {
+.drag-trend-card-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+.drag-trend-card h4 {
   margin: 0;
   font-size: 12px;
   letter-spacing: 1px;
@@ -1105,45 +1128,35 @@ input[type=file] { display: none; }
   font-weight: 700;
   text-transform: uppercase;
 }
-.drag-history-chart-wrap {
+.drag-now-val {
+  font-size: 11px;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+.drag-now-val b { color: var(--text); font-weight: 700; }
+.drag-trend-chart-wrap {
   position: relative;
   flex: 1;
   min-height: 0;
 }
-.drag-history-chart-wrap canvas,
-.drag-history-trend-wrap canvas {
+.drag-trend-chart-wrap canvas {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
 }
-.drag-history-trend-label {
-  font-size: 9.5px;
-  letter-spacing: 1px;
-  color: var(--text-faint);
-  text-transform: uppercase;
-  flex-shrink: 0;
-}
-.drag-history-trend-wrap {
-  position: relative;
-  height: 72px;
-  flex-shrink: 0;
-  background: var(--bg-deep);
-  border: 1px solid var(--grid-soft);
-  border-radius: 6px;
-}
-.drag-history-legend {
+.drag-trend-legend {
   display: flex;
   gap: 16px;
   font-size: 11px;
   color: var(--text-dim);
   flex-wrap: wrap;
 }
-.drag-history-legend .li { display: flex; align-items: center; gap: 6px; }
-.drag-history-legend .dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
-.drag-history-legend-note { color: var(--text-faint); }
+.drag-trend-legend .li { display: flex; align-items: center; gap: 6px; }
+.drag-trend-legend .dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+.drag-trend-legend-note { color: var(--text-faint); }
 
 @media (max-width: 640px) {
   .drag-groups { grid-template-columns: 1fr; }
-  .drag-history-charts { grid-template-columns: 1fr; }
+  .drag-trend-charts { grid-template-columns: 1fr; }
 }

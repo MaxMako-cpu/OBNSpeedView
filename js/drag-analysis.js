@@ -36,29 +36,28 @@
    - No fitting, no prediction — earlier designs tried both and neither
      held up under real-world testing. The live bars show the current
      measured value only, colored by the LP Range risk thresholds
-     (RANGE_SAFE_MAX / RANGE_CAUTION_MAX below). The session-history
-     charts below the bars are the same idea extended over time: every
-     ingested sample is bucketed by vessel speed (DRAG_BUCKET_KT) and
-     the chart draws the real per-bucket average — still no fitting, no
-     extrapolation, no projected values beyond what's been observed.
+     (RANGE_SAFE_MAX / RANGE_CAUTION_MAX below).
+   - Below the bars, two charts (LP Range, Drag Force) scroll continuously
+     over the last HISTORY_TIME_WINDOW_SEC of session time, one line per
+     TMS, fed incrementally by ingestPoint() as rows arrive — see
+     beaconTimeSeries(). An earlier version bucketed this by vessel speed
+     instead of time, which went static for long stretches whenever the
+     vessel held a steady speed (every sample landing in the same one or
+     two buckets). Plotting the same smoothed values against time instead
+     fixes that: real telemetry always moves on that axis, so the chart
+     stays visibly live even when speed itself doesn't change. Still no
+     fitting — every point is a real (smoothed) measurement.
    - historyForBeacon() is a separate, one-shot computation over a
      passed-in rows array (independent of this module's own live state),
-     kept for js/report.js's region-scoped PDF panel where a trend across
-     a selected time window is shown. beaconHistory() below is the live
-     analogue for the on-screen session-history charts, fed incrementally
-     from ingestPoint() as rows arrive rather than recomputed from scratch.
-   - The speed-bucketed charts go static whenever the vessel is holding a
-     steady speed for a while (very common mid-line) — every sample lands
-     in the same one or two 0.1kt buckets, so the running average barely
-     moves. Each chart also gets a small "recent trend" strip plotting the
-     same smoothed metric against session TIME instead of speed, over the
-     last HISTORY_TIME_WINDOW_SEC — real telemetry always moves on that
-     axis, so it stays visibly live even when speed doesn't change.
+     kept only for js/report.js's region-scoped PDF panel, which still
+     wants a speed-vs-range trend for a selected time window — a static
+     PDF page doesn't have the "goes stale on steady speed" problem the
+     live view did, so bucketing by speed still makes sense there.
    ====================================================================== */
 const DRAG_FILTER_WINDOW = 5;     // samples — smooths raw noise before display
 const DRAG_MAX_GAP_SEC   = 5.0;   // seconds — dropout gap resets the smoothing windows
-const DRAG_BUCKET_KT     = 0.1;   // speed-bucket width — used by historyForBeacon (report.js) and the speed-bucketed session-history charts
-const HISTORY_TIME_WINDOW_SEC = 900; // 15 min — recent-trend strip window
+const DRAG_BUCKET_KT     = 0.1;   // speed-bucket width — used only by historyForBeacon (report.js's PDF trend page)
+const HISTORY_TIME_WINDOW_SEC = 900; // 15 min — live trend chart window
 const HISTORY_TIME_MAX_POINTS = 3000; // hard cap alongside the time trim, in case telemetry arrives faster than expected
 const G                  = 9.81;  // m/s^2
 
@@ -91,8 +90,7 @@ function freshBeaconState() {
     lastFilteredRange: null, // most recent real (smoothed) LP Range
     lastFilteredVDist: null, // most recent real (smoothed) LP Vertical Distance
     n: 0,                     // raw sample count ever seen this session, shown in the footer as a trust signal
-    historyBuckets: new Map(), // speed-bucket idx -> {rangeSum,count,forceSum,forceN} — live session history, see beaconHistory()
-    timeSeries: [],             // [{epoch,range,force}] trimmed to HISTORY_TIME_WINDOW_SEC — feeds the recent-trend strip, see beaconTimeSeries()
+    timeSeries: [],             // [{epoch,range,force}] trimmed to HISTORY_TIME_WINDOW_SEC — feeds the live trend chart, see beaconTimeSeries()
   };
 }
 
@@ -111,7 +109,7 @@ const DEFAULT_SUBMERGED_WEIGHT_KG = 2606;
 const drag = {
   submergedWeightKg: parseFloat(localStorage.getItem("sv_drag_weight_kg")) || DEFAULT_SUBMERGED_WEIGHT_KG,
   lastSog: null,
-  lastEpoch: null, // most recent ingested row's epoch — "now" for the recent-trend strip's time axis
+  lastEpoch: null, // most recent ingested row's epoch — "now" for the live trend charts' time axis
   // Per-beacon on/off — switched off when a TMS is on deck and its LP Range
   // is known-corrupt, so it never gets ingested. Doesn't touch the last
   // good reading already shown — only gates future samples.
@@ -126,7 +124,7 @@ function resetAll() {
   drag.beacons["334"] = freshBeaconState();
 }
 
-function ingestPoint(key, lpRange, lpVDist, epoch, sog) {
+function ingestPoint(key, lpRange, lpVDist, epoch) {
   const b = drag.beacons[key];
   const dt = (Number.isFinite(epoch) && b.lastEpoch !== null) ? Math.max(0, epoch - b.lastEpoch) : null;
 
@@ -146,29 +144,16 @@ function ingestPoint(key, lpRange, lpVDist, epoch, sog) {
   b.lastEpoch = epoch;
   b.n += 1;
 
-  const forceN = estimateForce(b.lastFilteredRange, b.lastFilteredVDist);
-  const forceKn = forceN !== null ? forceN / 1000 : null;
-
-  // Recent-trend strip — plain time series of the same smoothed values,
-  // independent of speed. Always shows movement even when vessel speed
-  // itself is holding steady (see beaconTimeSeries()).
+  // Live trend chart feed — plain time series of the same smoothed values.
+  // Always shows movement even when vessel speed itself is holding steady
+  // (see beaconTimeSeries()).
   if (Number.isFinite(epoch)) {
-    b.timeSeries.push({ epoch, range: b.lastFilteredRange, force: forceKn });
+    const forceN = estimateForce(b.lastFilteredRange, b.lastFilteredVDist);
+    b.timeSeries.push({ epoch, range: b.lastFilteredRange, force: forceN !== null ? forceN / 1000 : null });
     while (b.timeSeries.length > 2 &&
            (epoch - b.timeSeries[0].epoch > HISTORY_TIME_WINDOW_SEC || b.timeSeries.length > HISTORY_TIME_MAX_POINTS)) {
       b.timeSeries.shift();
     }
-  }
-
-  // Speed-bucketed session history — same speed bucketing historyForBeacon()
-  // uses for the PDF. See beaconHistory().
-  if (Number.isFinite(sog) && sog >= 0) {
-    const idx = Math.round(sog / DRAG_BUCKET_KT);
-    let bucket = b.historyBuckets.get(idx);
-    if (!bucket) { bucket = { rangeSum: 0, count: 0, forceSum: 0, forceN: 0 }; b.historyBuckets.set(idx, bucket); }
-    bucket.rangeSum += b.lastFilteredRange;
-    bucket.count += 1;
-    if (forceKn !== null) { bucket.forceSum += forceKn; bucket.forceN += 1; }
   }
 }
 
@@ -192,7 +177,7 @@ export function ingestRow(row) {
     const vdist = row[b.vdistField];
     if (range === null || range === undefined || !Number.isFinite(range)) continue;
     if (vdist === null || vdist === undefined || !Number.isFinite(vdist)) continue;
-    ingestPoint(b.key, range, vdist, row.epoch, drag.lastSog);
+    ingestPoint(b.key, range, vdist, row.epoch);
   }
 
   if (panelOpen) updateBars();
@@ -251,31 +236,9 @@ export function historyForBeacon(rows, beaconKey) {
   return { points: rawPoints, history };
 }
 
-// Live session-history for one beacon — sorted-by-speed array of
-// { v, range, force, n }: the real bucketed averages accumulated
-// incrementally by ingestPoint() as rows arrive this session. force is
-// null for a bucket where every sample had too-small a Vertical Distance
-// to trust (see MIN_VDIST_M / estimateForce). Feeds the session-history
-// charts below the live bars; see the module doc-comment for how this
-// differs from historyForBeacon() above.
-function beaconHistory(key) {
-  const b = drag.beacons[key];
-  const pts = [];
-  for (const [idx, bucket] of b.historyBuckets) {
-    pts.push({
-      v: idx * DRAG_BUCKET_KT,
-      range: bucket.rangeSum / bucket.count,
-      force: bucket.forceN > 0 ? bucket.forceSum / bucket.forceN : null,
-      n: bucket.count,
-    });
-  }
-  pts.sort((a, c) => a.v - c.v);
-  return pts;
-}
-
-// Live recent-trend samples for one beacon — chronological array of
+// Live trend samples for one beacon — chronological array of
 // {epoch, range, force}, already trimmed to HISTORY_TIME_WINDOW_SEC by
-// ingestPoint(). Plotted against time (not speed) so the strip stays
+// ingestPoint(). Plotted against time (not speed) so the chart stays
 // visibly live even during a steady-speed stretch — see module doc-comment.
 function beaconTimeSeries(key) {
   return drag.beacons[key].timeSeries;
@@ -315,10 +278,8 @@ const canvasRange = document.getElementById("drag-chart-range");
 const canvasForce = document.getElementById("drag-chart-force");
 const ctxRange    = canvasRange ? canvasRange.getContext("2d") : null;
 const ctxForce    = canvasForce ? canvasForce.getContext("2d") : null;
-const canvasRangeTrend = document.getElementById("drag-chart-range-trend");
-const canvasForceTrend = document.getElementById("drag-chart-force-trend");
-const ctxRangeTrend    = canvasRangeTrend ? canvasRangeTrend.getContext("2d") : null;
-const ctxForceTrend    = canvasForceTrend ? canvasForceTrend.getContext("2d") : null;
+const nowRangeEl  = document.getElementById("drag-now-range");
+const nowForceEl  = document.getElementById("drag-now-force");
 
 let panelOpen = false;
 
@@ -364,8 +325,8 @@ function updateGroup(key) {
   if (els.forceFill) els.forceFill.style.height = forceKn !== null ? Math.min(100, (forceKn / FORCE_MAX) * 100) + "%" : "0%";
 }
 
-/* ---- session-history charts: plain canvas, real bucketed points only ---- */
-const CHART_MARGIN = { top: 12, right: 12, bottom: 22, left: 40 };
+/* ---- continuous live trend charts: plain canvas, real points only ---- */
+const CHART_MARGIN = { top: 10, right: 14, bottom: 22, left: 44 };
 const CHART_FONT = "10px 'JetBrains Mono', Consolas, monospace";
 
 function niceAxisStep(max) {
@@ -392,24 +353,27 @@ function resizeChartCanvas(canvas) {
   return { w, h };
 }
 
-// series: [{ color, points: [{v, y, n}] }, ...] — draws grid + axes, then
-// each series as a connecting line through its real points plus dots sized
-// by sample count (n). No fitting, no extrapolation beyond observed points.
-function drawHistoryChart(canvas, ctx, series) {
+// series: [{ color, points: [{epoch, y}] }, ...] — draws the last
+// HISTORY_TIME_WINDOW_SEC of real smoothed samples per beacon, scrolling
+// continuously as new rows arrive. No bucketing, no fitting — every point
+// is a real measurement plotted against session time; a glowing dot marks
+// each series' live edge.
+function drawLiveChart(canvas, ctx, series, nowEpoch) {
   if (!canvas || !ctx) return;
   const { w, h } = resizeChartCanvas(canvas);
   if (w < 10 || h < 10) return;
   ctx.clearRect(0, 0, w, h);
+  if (nowEpoch === null) return;
 
   const allPts = series.flatMap((s) => s.points);
-  let vMax = 0.5, yMax = 10;
-  for (const p of allPts) { if (p.v > vMax) vMax = p.v; if (p.y > yMax) yMax = p.y; }
-  vMax *= 1.08;
+  let yMax = 10;
+  for (const p of allPts) if (p.y > yMax) yMax = p.y;
   yMax *= 1.15;
 
   const x0 = CHART_MARGIN.left, y0 = CHART_MARGIN.top, x1 = w - CHART_MARGIN.right, y1 = h - CHART_MARGIN.bottom;
   const pw = Math.max(1, x1 - x0), ph = Math.max(1, y1 - y0);
-  const xToPx = (v) => x0 + (v / vMax) * pw;
+  const tMin = nowEpoch - HISTORY_TIME_WINDOW_SEC;
+  const xToPx = (epoch) => x0 + ((epoch - tMin) / HISTORY_TIME_WINDOW_SEC) * pw;
   const yToPx = (y) => y1 - (y / yMax) * ph;
 
   ctx.save();
@@ -425,70 +389,12 @@ function drawHistoryChart(canvas, ctx, series) {
     ctx.fillText(y.toFixed(yStep < 1 ? 1 : 0), x0 - 6, py);
   }
   ctx.textAlign = "center"; ctx.textBaseline = "top";
-  const vStep = niceAxisStep(vMax);
-  for (let v = 0; v <= vMax + 1e-6; v += vStep) {
-    const px = xToPx(v);
+  const winMin = HISTORY_TIME_WINDOW_SEC / 60;
+  for (let m = 0; m <= winMin; m += 3) {
+    const px = xToPx(tMin + m * 60);
     ctx.beginPath(); ctx.moveTo(px, y0); ctx.lineTo(px, y1); ctx.stroke();
-    ctx.fillText(v.toFixed(1), px, y1 + 5);
+    ctx.fillText(m === winMin ? "now" : `-${winMin - m}m`, px, y1 + 5);
   }
-  ctx.restore();
-
-  ctx.save();
-  ctx.beginPath(); ctx.rect(x0, y0, pw, ph); ctx.clip();
-  for (const s of series) {
-    if (s.points.length > 1) {
-      ctx.save();
-      ctx.strokeStyle = s.color; ctx.lineWidth = 2; ctx.lineJoin = "round";
-      ctx.shadowColor = s.color; ctx.shadowBlur = 4;
-      ctx.beginPath();
-      s.points.forEach((p, i) => { const px = xToPx(p.v), py = yToPx(p.y); if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py); });
-      ctx.stroke();
-      ctx.restore();
-    }
-    ctx.save();
-    ctx.fillStyle = s.color;
-    for (const p of s.points) {
-      const px = xToPx(p.v), py = yToPx(p.y);
-      const r = Math.max(1.8, Math.min(5, 1.8 + Math.sqrt(p.n) * 0.4));
-      ctx.beginPath(); ctx.arc(px, py, r, 0, Math.PI * 2); ctx.fill();
-    }
-    ctx.restore();
-  }
-  ctx.restore();
-}
-
-// series: [{ color, points: [{epoch, y}] }, ...] — draws the last
-// HISTORY_TIME_WINDOW_SEC of real smoothed samples per beacon, chronological,
-// no bucketing. This is what stays visibly live when speed itself doesn't move.
-function drawTrendChart(canvas, ctx, series, nowEpoch) {
-  if (!canvas || !ctx) return;
-  const { w, h } = resizeChartCanvas(canvas);
-  if (w < 10 || h < 10) return;
-  ctx.clearRect(0, 0, w, h);
-  if (nowEpoch === null) return;
-
-  const allPts = series.flatMap((s) => s.points);
-  let yMax = 10;
-  for (const p of allPts) if (p.y > yMax) yMax = p.y;
-  yMax *= 1.15;
-
-  const x0 = 6, y0 = 6, x1 = w - 6, y1 = h - 15;
-  const pw = Math.max(1, x1 - x0), ph = Math.max(1, y1 - y0);
-  const tMin = nowEpoch - HISTORY_TIME_WINDOW_SEC;
-  const xToPx = (epoch) => x0 + ((epoch - tMin) / HISTORY_TIME_WINDOW_SEC) * pw;
-  const yToPx = (y) => y1 - (y / yMax) * ph;
-
-  ctx.save();
-  ctx.strokeStyle = "rgba(23,48,73,0.6)";
-  ctx.lineWidth = 1;
-  ctx.beginPath(); ctx.moveTo(x0, y1); ctx.lineTo(x1, y1); ctx.stroke();
-  ctx.fillStyle = "#3d5168";
-  ctx.font = CHART_FONT;
-  ctx.textBaseline = "top";
-  ctx.textAlign = "left";
-  ctx.fillText(`-${Math.round(HISTORY_TIME_WINDOW_SEC / 60)}m`, x0, y1 + 3);
-  ctx.textAlign = "right";
-  ctx.fillText("now", x1, y1 + 3);
   ctx.restore();
 
   ctx.save();
@@ -496,39 +402,48 @@ function drawTrendChart(canvas, ctx, series, nowEpoch) {
   for (const s of series) {
     if (s.points.length < 2) continue;
     ctx.save();
-    ctx.strokeStyle = s.color; ctx.lineWidth = 1.6; ctx.lineJoin = "round";
+    ctx.strokeStyle = s.color; ctx.lineWidth = 2; ctx.lineJoin = "round";
+    ctx.shadowColor = s.color; ctx.shadowBlur = 4;
     ctx.beginPath();
     s.points.forEach((p, i) => { const px = xToPx(p.epoch), py = yToPx(p.y); if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py); });
     ctx.stroke();
+    ctx.restore();
+
+    const last = s.points[s.points.length - 1];
+    ctx.save();
+    ctx.fillStyle = s.color; ctx.shadowColor = s.color; ctx.shadowBlur = 8;
+    ctx.beginPath(); ctx.arc(xToPx(last.epoch), yToPx(last.y), 3.2, 0, Math.PI * 2); ctx.fill();
     ctx.restore();
   }
   ctx.restore();
 }
 
-function updateHistoryCharts() {
+function updateTrendCharts() {
   if (!panelOpen) return;
-  const rangeSeries = [], forceSeries = [], rangeTrend = [], forceTrend = [];
+  const rangeSeries = [], forceSeries = [];
+  const nowRangeParts = [], nowForceParts = [];
   for (const b of BEACONS) {
-    if (!drag.enabled[b.key]) continue;
-    const hist = beaconHistory(b.key);
-    rangeSeries.push({ color: b.color, points: hist.map((p) => ({ v: p.v, y: p.range, n: p.n })) });
-    forceSeries.push({ color: b.color, points: hist.filter((p) => p.force !== null).map((p) => ({ v: p.v, y: p.force, n: p.n })) });
-
+    if (!drag.enabled[b.key]) { nowRangeParts.push("&mdash;"); nowForceParts.push("&mdash;"); continue; }
     const ts = beaconTimeSeries(b.key);
-    rangeTrend.push({ color: b.color, points: ts.filter((p) => p.range !== null).map((p) => ({ epoch: p.epoch, y: p.range })) });
-    forceTrend.push({ color: b.color, points: ts.filter((p) => p.force !== null).map((p) => ({ epoch: p.epoch, y: p.force })) });
+    rangeSeries.push({ color: b.color, points: ts.filter((p) => p.range !== null).map((p) => ({ epoch: p.epoch, y: p.range })) });
+    forceSeries.push({ color: b.color, points: ts.filter((p) => p.force !== null).map((p) => ({ epoch: p.epoch, y: p.force })) });
+
+    const bs = drag.beacons[b.key];
+    nowRangeParts.push(bs.lastFilteredRange !== null ? `<b>${bs.lastFilteredRange.toFixed(0)}m</b>` : "&mdash;");
+    const forceN = estimateForce(bs.lastFilteredRange, bs.lastFilteredVDist);
+    nowForceParts.push(forceN !== null ? `<b>${(forceN / 1000).toFixed(1)}kN</b>` : "&mdash;");
   }
-  drawHistoryChart(canvasRange, ctxRange, rangeSeries);
-  drawHistoryChart(canvasForce, ctxForce, forceSeries);
-  drawTrendChart(canvasRangeTrend, ctxRangeTrend, rangeTrend, drag.lastEpoch);
-  drawTrendChart(canvasForceTrend, ctxForceTrend, forceTrend, drag.lastEpoch);
+  drawLiveChart(canvasRange, ctxRange, rangeSeries, drag.lastEpoch);
+  drawLiveChart(canvasForce, ctxForce, forceSeries, drag.lastEpoch);
+  if (nowRangeEl) nowRangeEl.innerHTML = nowRangeParts.join(" / ");
+  if (nowForceEl) nowForceEl.innerHTML = nowForceParts.join(" / ");
 }
 
 function updateBars() {
   updateGroup("333");
   updateGroup("334");
   if (footerN) footerN.textContent = (drag.beacons["333"].n + drag.beacons["334"].n) + " observed samples this session";
-  updateHistoryCharts();
+  updateTrendCharts();
 }
 
 export function openPanel() {
@@ -537,7 +452,7 @@ export function openPanel() {
   updateBars();
   // Canvas parents may report zero size on the same tick the modal becomes
   // visible in some browsers — one more pass after layout settles.
-  requestAnimationFrame(updateHistoryCharts);
+  requestAnimationFrame(updateTrendCharts);
 }
 function closePanel() {
   panelOpen = false;
@@ -547,7 +462,7 @@ function closePanel() {
 if (btnOpen) btnOpen.addEventListener("click", openPanel);
 if (btnClose) btnClose.addEventListener("click", closePanel);
 if (modal) modal.addEventListener("click", (e) => { if (e.target === modal) closePanel(); });
-window.addEventListener("resize", updateHistoryCharts); // no-ops while panel is closed
+window.addEventListener("resize", updateTrendCharts); // no-ops while panel is closed
 
 if (inWeight) inWeight.addEventListener("input", () => {
   const v = parseFloat(inWeight.value);
