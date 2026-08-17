@@ -362,12 +362,13 @@
     <div class="drag-header">
       <div class="drag-header-mark"></div>
       <div class="drag-header-title">DRAG ANALYSIS</div>
-      <div class="drag-header-sub">Speed &middot; LP Range &middot; Drag Force, per TMS</div>
+      <div class="drag-header-sub">Speed &middot; LP Range &middot; Drag Force, per TMS &middot; live + session history</div>
       <div class="drag-live-chip"><span class="dot"></span>LIVE</div>
       <div class="toolbar-spacer"></div>
       <button id="drag-panel-close">CLOSE</button>
     </div>
 
+    <div class="drag-scroll-body">
     <div class="drag-key-row">
       <span class="drag-key-title">LP RANGE:</span>
       <div class="drag-key-item"><span class="drag-key-swatch" style="background:var(--green);"></span>0&ndash;500m &middot; SAFE</div>
@@ -453,6 +454,30 @@
       </div>
     </div>
 
+    <div class="drag-history-section">
+      <div class="drag-section-title">Session History &mdash; how speed has affected each metric</div>
+      <div class="drag-history-charts">
+        <div class="drag-history-card">
+          <h4>LP Range vs Speed</h4>
+          <div class="drag-history-chart-wrap"><canvas id="drag-chart-range"></canvas></div>
+          <div class="drag-history-legend">
+            <div class="li"><span class="dot" style="background:var(--red);"></span>TMS333</div>
+            <div class="li"><span class="dot" style="background:var(--green);"></span>TMS334</div>
+            <div class="li drag-history-legend-note">dot size = sample count &middot; real data only, no projection</div>
+          </div>
+        </div>
+        <div class="drag-history-card">
+          <h4>Drag Force vs Speed</h4>
+          <div class="drag-history-chart-wrap"><canvas id="drag-chart-force"></canvas></div>
+          <div class="drag-history-legend">
+            <div class="li"><span class="dot" style="background:var(--red);"></span>TMS333</div>
+            <div class="li"><span class="dot" style="background:var(--green);"></span>TMS334</div>
+            <div class="li drag-history-legend-note">dot size = sample count &middot; real data only, no projection</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <div class="drag-adv-toggle-row">
       <button id="drag-adv-toggle"><span class="chev">&#9656;</span> Advanced: drag force input</button>
       <div id="drag-adv-body">
@@ -466,9 +491,10 @@
         </div>
       </div>
     </div>
+    </div>
 
     <div class="drag-footer">
-      <span>Live values only &middot; no history, no prediction &mdash; just what's being measured right now</span>
+      <span>Live values are real-time; history is real bucketed averages &mdash; nothing modeled or projected</span>
       <span id="drag-footer-n">&mdash;</span>
     </div>
   </div>
