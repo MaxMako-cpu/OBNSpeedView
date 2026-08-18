@@ -57,8 +57,8 @@
 const DRAG_FILTER_WINDOW = 5;     // samples — smooths raw noise before display
 const DRAG_MAX_GAP_SEC   = 5.0;   // seconds — dropout gap resets the smoothing windows
 const DRAG_BUCKET_KT     = 0.1;   // speed-bucket width — used only by historyForBeacon (report.js's PDF trend page)
-const HISTORY_TIME_WINDOW_SEC = 900; // 15 min — live trend chart window
-const HISTORY_TIME_MAX_POINTS = 3000; // hard cap alongside the time trim, in case telemetry arrives faster than expected
+const HISTORY_TIME_WINDOW_SEC = 3600; // 1 hour — live trend chart window
+const HISTORY_TIME_MAX_POINTS = 10000; // hard cap alongside the time trim, in case telemetry arrives faster than expected
 const G                  = 9.81;  // m/s^2
 
 // Bar scale ceilings (independent per metric — these have unrelated units)
@@ -337,6 +337,13 @@ function niceAxisStep(max) {
   return max > 2 ? 0.5 : 0.2;
 }
 
+function niceMinuteStep(winMin) {
+  if (winMin > 120) return 30;
+  if (winMin > 40) return 10;
+  if (winMin > 15) return 5;
+  return 3;
+}
+
 function resizeChartCanvas(canvas) {
   if (!canvas || !canvas.parentElement) return { w: 0, h: 0 };
   const rect = canvas.parentElement.getBoundingClientRect();
@@ -390,7 +397,8 @@ function drawLiveChart(canvas, ctx, series, nowEpoch) {
   }
   ctx.textAlign = "center"; ctx.textBaseline = "top";
   const winMin = HISTORY_TIME_WINDOW_SEC / 60;
-  for (let m = 0; m <= winMin; m += 3) {
+  const mStep = niceMinuteStep(winMin);
+  for (let m = 0; m <= winMin; m += mStep) {
     const px = xToPx(tMin + m * 60);
     ctx.beginPath(); ctx.moveTo(px, y0); ctx.lineTo(px, y1); ctx.stroke();
     ctx.fillText(m === winMin ? "now" : `-${winMin - m}m`, px, y1 + 5);
