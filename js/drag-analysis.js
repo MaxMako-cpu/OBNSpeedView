@@ -70,7 +70,7 @@ const G                  = 9.81;  // m/s^2
 // Bar scale ceilings (independent per metric — these have unrelated units)
 const SPEED_MAX = 1.5;   // kt
 const RANGE_MAX = 1000;  // m
-const FORCE_MAX = 150;   // kN — the Range/VDist ratio can exceed 1, so peak forces run well above the old speed-based estimate's range
+const FORCE_MAX = 15;    // kN — bar scale ceiling; the numeric readout is unclamped and can exceed this
 
 // LP Range risk thresholds
 const RANGE_SAFE_MAX    = 500; // < this: safe (green)
