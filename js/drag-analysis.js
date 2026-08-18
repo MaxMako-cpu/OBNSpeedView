@@ -59,6 +59,13 @@
      wants a speed-vs-range trend for a selected time window — a static
      PDF page doesn't have the "goes stale on steady speed" problem the
      live view did, so bucketing by speed still makes sense there.
+   - DH Angle is TMS{333,334}_LP Declination, another already-existing
+     telemetry field (already used elsewhere for LP Declination Alert
+     zones) — no new ingestion. Shown as a small donut gauge next to the
+     LP Range bar, smoothed the same way as Range/VDist, colored by
+     DH_SAFE_MAX / DH_CAUTION_MAX. Tracked independently of Range/VDist
+     validity — a beacon can show a DH reading even on a row where Range
+     briefly drops out, and vice versa.
    ====================================================================== */
 const DRAG_FILTER_WINDOW = 5;     // samples — smooths raw noise before display
 const DRAG_MAX_GAP_SEC   = 5.0;   // seconds — dropout gap resets the smoothing windows
@@ -81,20 +88,27 @@ const RANGE_CAUTION_MAX = 700; // < this: caution (amber); >= this: warning (red
 // transceiver's own depth would blow the ratio up without meaning anything).
 const MIN_VDIST_M = 0.5;
 
+// DH Angle (LP Declination) risk thresholds and donut-gauge full scale
+const DH_SAFE_MAX    = 14; // < this: safe (green)
+const DH_CAUTION_MAX = 19; // < this: caution (amber); >= this: warning (red)
+const DH_SCALE_MAX   = 21; // deg — donut ring's full-scale (100%) reference
+
 const BEACONS = [
   // color is only used by js/report.js's PDF scatter/trend page (the live
   // panel below colors its bars by LP Range status, not beacon identity).
-  { key: "333", label: "TMS333", rangeField: "TMS333_LP Range (m)", vdistField: "TMS333_LP Vertical distance (m)", color: "#ff4d6a" },
-  { key: "334", label: "TMS334", rangeField: "TMS334_LP Range (m)", vdistField: "TMS334_LP Vertical distance (m)", color: "#3ee07a" },
+  { key: "333", label: "TMS333", rangeField: "TMS333_LP Range (m)", vdistField: "TMS333_LP Vertical distance (m)", declField: "TMS333_LP Declination", color: "#ff4d6a" },
+  { key: "334", label: "TMS334", rangeField: "TMS334_LP Range (m)", vdistField: "TMS334_LP Vertical distance (m)", declField: "TMS334_LP Declination", color: "#3ee07a" },
 ];
 
 function freshBeaconState() {
   return {
     rangeWindow: [],
     vdistWindow: [],
+    declWindow: [],
     lastEpoch: null,
     lastFilteredRange: null, // most recent real (smoothed) LP Range
     lastFilteredVDist: null, // most recent real (smoothed) LP Vertical Distance
+    lastFilteredDecl: null,  // most recent real (smoothed) LP Declination (DH Angle)
     n: 0,                     // raw sample count ever seen this session, shown in the footer as a trust signal
     timeSeries: [],             // [{epoch,range,force}] trimmed to HISTORY_TIME_WINDOW_SEC — feeds the live trend chart, see beaconTimeSeries()
   };
@@ -163,6 +177,16 @@ function ingestPoint(key, lpRange, lpVDist, epoch) {
   }
 }
 
+// DH Angle (LP Declination) smoothing — independent of ingestPoint()/Range
+// validity, since a beacon's declination reading isn't tied to whether its
+// Range/Vertical Distance happened to be valid on the same row.
+function ingestDecl(key, decl) {
+  const b = drag.beacons[key];
+  b.declWindow.push(decl);
+  if (b.declWindow.length > DRAG_FILTER_WINDOW) b.declWindow.shift();
+  b.lastFilteredDecl = b.declWindow.reduce((a, v) => a + v, 0) / b.declWindow.length;
+}
+
 // Called on the same day-boundary resets everything else in the app already
 // does (regions, events, LP alert zones) — a new UTC day starts fresh
 // rather than showing a stale reading from the previous day.
@@ -191,9 +215,14 @@ export function ingestRow(row) {
       if (!drag.enabled[b.key]) continue;
       const range = row[b.rangeField];
       const vdist = row[b.vdistField];
-      if (range === null || range === undefined || !Number.isFinite(range)) continue;
-      if (vdist === null || vdist === undefined || !Number.isFinite(vdist)) continue;
-      ingestPoint(b.key, range, vdist, row.epoch);
+      if (range !== null && range !== undefined && Number.isFinite(range) &&
+          vdist !== null && vdist !== undefined && Number.isFinite(vdist)) {
+        ingestPoint(b.key, range, vdist, row.epoch);
+      }
+      const decl = row[b.declField];
+      if (decl !== null && decl !== undefined && Number.isFinite(decl)) {
+        ingestDecl(b.key, decl);
+      }
     }
   }
 
@@ -283,6 +312,12 @@ function rangeStatus(m) {
   return "warning";
 }
 
+function dhStatus(deg) {
+  if (deg < DH_SAFE_MAX) return "safe";
+  if (deg < DH_CAUTION_MAX) return "caution";
+  return "warning";
+}
+
 /* ======================================================================
    Panel DOM + rendering — plain DOM bars, no canvas
    ====================================================================== */
@@ -310,6 +345,9 @@ function barEls(key) {
     rangeVal:  document.getElementById(`drag-${key}-range-val`),
     rangeStat: document.getElementById(`drag-${key}-range-status`),
     rangeFill: document.getElementById(`drag-${key}-range-fill`),
+    dhVal:     document.getElementById(`drag-${key}-dh-val`),
+    dhStat:    document.getElementById(`drag-${key}-dh-status`),
+    dhRing:    document.getElementById(`drag-${key}-dh-ring`),
     forceVal:  document.getElementById(`drag-${key}-force-val`),
     forceFill: document.getElementById(`drag-${key}-force-fill`),
   };
@@ -323,6 +361,20 @@ function updateGroup(key) {
 
   if (els.speedVal) els.speedVal.innerHTML = enabled ? sog.toFixed(2) + '<span class="unit"> kn</span>' : '<span class="drag-bar-off">off</span>';
   if (els.speedFill) els.speedFill.style.height = enabled ? Math.min(100, (sog / SPEED_MAX) * 100) + "%" : "0%";
+
+  if (!enabled || b.lastFilteredDecl === null) {
+    if (els.dhVal) els.dhVal.innerHTML = !enabled ? '<span class="drag-bar-off">off</span>' : '&mdash;';
+    if (els.dhStat) els.dhStat.textContent = "";
+    if (els.dhRing) els.dhRing.style.background = "var(--bg-deep)";
+  } else {
+    const deg = b.lastFilteredDecl;
+    const dst = dhStatus(deg);
+    const pct = Math.min(100, (deg / DH_SCALE_MAX) * 100);
+    const col = dst === "safe" ? "var(--green)" : dst === "caution" ? "var(--amber)" : "var(--red)";
+    if (els.dhVal) els.dhVal.innerHTML = deg.toFixed(1) + '<span class="unit">&deg;</span>';
+    if (els.dhStat) { els.dhStat.textContent = dst.toUpperCase(); els.dhStat.className = "drag-bar-status status-" + dst; }
+    if (els.dhRing) els.dhRing.style.background = `conic-gradient(from -90deg, ${col} 0%, ${col} ${pct}%, var(--bg-deep) ${pct}%, var(--bg-deep) 100%)`;
+  }
 
   if (!enabled || b.lastFilteredRange === null) {
     if (els.rangeVal) els.rangeVal.innerHTML = !enabled ? '<span class="drag-bar-off">off</span>' : '&mdash;';

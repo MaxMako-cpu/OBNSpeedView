@@ -970,7 +970,7 @@ input[type=file] { display: none; }
 .t334 .drag-toggle-switch input:checked ~ .drag-toggle-thumb { background: var(--green); transform: translateX(15px); }
 
 /* ---- bars ---- */
-.drag-bar-row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; height: 210px; }
+.drag-bar-row { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 10px; height: 210px; }
 .drag-bar-col { display: flex; flex-direction: column; align-items: center; gap: 8px; min-width: 0; }
 .drag-bar-value { font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.1; text-align: center; }
 .drag-bar-value .unit { font-size: 11px; font-weight: 400; color: var(--text-dim); }
@@ -1014,6 +1014,29 @@ input[type=file] { display: none; }
 }
 .drag-bar-label { font-size: 10.5px; letter-spacing: 1.5px; color: var(--text-dim); text-transform: uppercase; }
 .drag-bar-note { font-size: 9px; color: var(--text-faint); text-align: center; margin-top: -4px; }
+
+/* ---- DH Angle donut gauge ---- */
+.drag-dh-ring-wrap { flex: 1; display: flex; align-items: center; justify-content: center; min-height: 0; }
+.drag-dh-ring {
+  position: relative;
+  width: 64px; height: 64px;
+  border-radius: 50%;
+  background: var(--bg-deep);
+  transition: background .25s ease;
+}
+.drag-dh-ring::before {
+  content: "";
+  position: absolute; inset: 6px;
+  border-radius: 50%;
+  background: var(--panel-2);
+}
+.drag-dh-ring-val {
+  position: absolute; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+.drag-dh-ring-val .unit { font-size: 9px; color: var(--text-dim); font-weight: 400; margin-left: 1px; }
 .drag-est-badge {
   font-size: 8.5px;
   font-weight: 800;
