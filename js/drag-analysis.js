@@ -47,6 +47,12 @@
      fixes that: real telemetry always moves on that axis, so the chart
      stays visibly live even when speed itself doesn't change. Still no
      fitting — every point is a real (smoothed) measurement.
+   - Above SPEED_MAX (also the Speed bar's scale ceiling) the vessel is
+     transiting rather than surveying — Range/Force readings aren't
+     representative at that speed, so ingestion pauses entirely and the
+     whole panel body (live bars AND trend charts) is replaced by a
+     "NOT IN PRODUCTION" banner. Resumes automatically once speed drops
+     back down; see isOverSpeedLimit().
    - historyForBeacon() is a separate, one-shot computation over a
      passed-in rows array (independent of this module's own live state),
      kept only for js/report.js's region-scoped PDF panel, which still
@@ -62,7 +68,7 @@ const HISTORY_TIME_MAX_POINTS = 10000; // hard cap alongside the time trim, in c
 const G                  = 9.81;  // m/s^2
 
 // Bar scale ceilings (independent per metric — these have unrelated units)
-const SPEED_MAX = 5;     // kt
+const SPEED_MAX = 1.5;   // kt
 const RANGE_MAX = 1000;  // m
 const FORCE_MAX = 150;   // kN — the Range/VDist ratio can exceed 1, so peak forces run well above the old speed-based estimate's range
 
@@ -165,19 +171,30 @@ export function reset() {
   if (panelOpen) updateBars();
 }
 
+// Drag Analysis only means anything at production (survey) speed — above
+// SPEED_MAX the vessel is transiting/maneuvering and Range/Force readings
+// aren't representative, so ingestion pauses entirely rather than showing
+// misleading numbers. Scoped to this module only — the rest of the app
+// (speed chart, archive, etc.) is unaffected.
+function isOverSpeedLimit() {
+  return drag.lastSog !== null && drag.lastSog > SPEED_MAX;
+}
+
 export function ingestRow(row) {
   if (!row) return;
   const sog = row["IFR SOG (knot)"];
   if (sog !== null && sog !== undefined && Number.isFinite(sog)) drag.lastSog = sog;
   if (Number.isFinite(row.epoch)) drag.lastEpoch = row.epoch;
 
-  for (const b of BEACONS) {
-    if (!drag.enabled[b.key]) continue;
-    const range = row[b.rangeField];
-    const vdist = row[b.vdistField];
-    if (range === null || range === undefined || !Number.isFinite(range)) continue;
-    if (vdist === null || vdist === undefined || !Number.isFinite(vdist)) continue;
-    ingestPoint(b.key, range, vdist, row.epoch);
+  if (!isOverSpeedLimit()) {
+    for (const b of BEACONS) {
+      if (!drag.enabled[b.key]) continue;
+      const range = row[b.rangeField];
+      const vdist = row[b.vdistField];
+      if (range === null || range === undefined || !Number.isFinite(range)) continue;
+      if (vdist === null || vdist === undefined || !Number.isFinite(vdist)) continue;
+      ingestPoint(b.key, range, vdist, row.epoch);
+    }
   }
 
   if (panelOpen) updateBars();
@@ -280,6 +297,9 @@ const ctxRange    = canvasRange ? canvasRange.getContext("2d") : null;
 const ctxForce    = canvasForce ? canvasForce.getContext("2d") : null;
 const nowRangeEl  = document.getElementById("drag-now-range");
 const nowForceEl  = document.getElementById("drag-now-force");
+const limitBanner   = document.getElementById("drag-limit-banner");
+const dragGroups    = document.getElementById("drag-groups");
+const dragTrendSection = document.getElementById("drag-trend-section");
 
 let panelOpen = false;
 
@@ -448,10 +468,16 @@ function updateTrendCharts() {
 }
 
 function updateBars() {
-  updateGroup("333");
-  updateGroup("334");
+  const overLimit = isOverSpeedLimit();
+  if (limitBanner) limitBanner.classList.toggle("show", overLimit);
+  if (dragGroups) dragGroups.style.display = overLimit ? "none" : "";
+  if (dragTrendSection) dragTrendSection.style.display = overLimit ? "none" : "";
+  if (!overLimit) {
+    updateGroup("333");
+    updateGroup("334");
+    updateTrendCharts();
+  }
   if (footerN) footerN.textContent = (drag.beacons["333"].n + drag.beacons["334"].n) + " observed samples this session";
-  updateTrendCharts();
 }
 
 export function openPanel() {
@@ -460,7 +486,7 @@ export function openPanel() {
   updateBars();
   // Canvas parents may report zero size on the same tick the modal becomes
   // visible in some browsers — one more pass after layout settles.
-  requestAnimationFrame(updateTrendCharts);
+  requestAnimationFrame(() => { if (!isOverSpeedLimit()) updateTrendCharts(); });
 }
 function closePanel() {
   panelOpen = false;
@@ -470,7 +496,7 @@ function closePanel() {
 if (btnOpen) btnOpen.addEventListener("click", openPanel);
 if (btnClose) btnClose.addEventListener("click", closePanel);
 if (modal) modal.addEventListener("click", (e) => { if (e.target === modal) closePanel(); });
-window.addEventListener("resize", updateTrendCharts); // no-ops while panel is closed
+window.addEventListener("resize", () => { if (!isOverSpeedLimit()) updateTrendCharts(); }); // no-ops while panel is closed or over the speed limit
 
 if (inWeight) inWeight.addEventListener("input", () => {
   const v = parseFloat(inWeight.value);

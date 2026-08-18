@@ -910,6 +910,35 @@ input[type=file] { display: none; }
 .drag-key-item { display: flex; align-items: center; gap: 7px; }
 .drag-key-swatch { width: 12px; height: 12px; border-radius: 3px; }
 
+/* ---- speed-limit gate ---- */
+.drag-limit-banner {
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  text-align: center;
+  padding: 32px 20px;
+  margin: 16px 18px 8px;
+  min-height: 320px;
+  background: rgba(255,77,106,0.06);
+  border: 1px solid rgba(255,77,106,0.35);
+  border-radius: var(--radius);
+}
+.drag-limit-banner.show { display: flex; flex: 1; }
+.drag-limit-title {
+  font-size: 20px;
+  font-weight: 800;
+  letter-spacing: 3px;
+  color: var(--red);
+  text-shadow: 0 0 14px var(--red-glow);
+}
+.drag-limit-sub {
+  font-size: 12.5px;
+  color: var(--text-dim);
+  max-width: 480px;
+}
+
 /* ---- TMS groups ---- */
 .drag-groups {
   display: grid;

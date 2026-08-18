@@ -376,7 +376,12 @@
       <div class="drag-key-item"><span class="drag-key-swatch" style="background:var(--red);"></span>700m+ &middot; WARNING</div>
     </div>
 
-    <div class="drag-groups">
+    <div class="drag-limit-banner" id="drag-limit-banner">
+      <div class="drag-limit-title">NOT IN PRODUCTION</div>
+      <div class="drag-limit-sub">Vessel speed above 1.5kt &mdash; Drag Analysis only tracks production-speed data, ingestion is paused until speed drops back down</div>
+    </div>
+
+    <div class="drag-groups" id="drag-groups">
       <div class="drag-tms-group t333">
         <div class="drag-tg-head">
           <span class="drag-tg-dot"></span>
@@ -454,7 +459,7 @@
       </div>
     </div>
 
-    <div class="drag-trend-section">
+    <div class="drag-trend-section" id="drag-trend-section">
       <div class="drag-section-title">Trend <span class="drag-live-tag"><span class="dot"></span>updating continuously</span></div>
       <div class="drag-trend-charts">
         <div class="drag-trend-card">
