@@ -973,7 +973,7 @@ input[type=file] { display: none; }
 .drag-bar-row { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 10px; height: 210px; }
 .drag-bar-col { display: flex; flex-direction: column; align-items: center; gap: 8px; min-width: 0; }
 .drag-bar-value { font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.1; text-align: center; }
-.drag-bar-value .unit { font-size: 11px; font-weight: 400; color: var(--text-dim); }
+.drag-bar-value .unit { font-size: 13px; font-weight: 400; color: var(--text-dim); }
 .drag-bar-off { color: var(--text-faint); font-size: 13px; font-weight: 400; }
 .drag-bar-status { font-size: 9.5px; letter-spacing: 1px; font-weight: 700; text-transform: uppercase; height: 12px; }
 .drag-bar-status.status-safe { color: var(--green); }
@@ -1012,7 +1012,7 @@ input[type=file] { display: none; }
   position: absolute; right: 2px; top: -12px;
   font-size: 8px; color: var(--text-faint); letter-spacing: .5px;
 }
-.drag-bar-label { font-size: 10.5px; letter-spacing: 1.5px; color: var(--text-dim); text-transform: uppercase; }
+.drag-bar-label { font-size: 12px; font-weight: 800; letter-spacing: 1.2px; color: var(--text); text-transform: uppercase; }
 .drag-bar-note { font-size: 9px; color: var(--text-faint); text-align: center; margin-top: -4px; }
 
 /* ---- DH Angle donut gauge ---- */
@@ -1036,7 +1036,7 @@ input[type=file] { display: none; }
   font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums;
   color: var(--text);
 }
-.drag-dh-ring-val .unit { font-size: 9px; color: var(--text-dim); font-weight: 400; margin-left: 1px; }
+.drag-dh-ring-val .unit { font-size: 11px; color: var(--text-dim); font-weight: 400; margin-left: 1px; }
 .drag-est-badge {
   font-size: 8.5px;
   font-weight: 800;
