@@ -63,6 +63,18 @@ os.makedirs(NODE_FIX_DIR, exist_ok=True)
 
 NODE_FIX_CSV_HEADER = "Timestamp,UHD,RL,ST,ID"
 
+DRAG_ARCHIVE_DIR = os.path.join(SCRIPT_DIR, "drag_analysis_archive")
+os.makedirs(DRAG_ARCHIVE_DIR, exist_ok=True)
+
+DRAG_CSV_HEADER = (
+    "TimeStamp (Utc),IFR SOG (knot),"
+    "TMS333_LP Range Smoothed (m),TMS333_LP Vertical Distance Smoothed (m),"
+    "TMS333_DH Angle Smoothed (deg),TMS333_Est Drag Force (kN),"
+    "TMS334_LP Range Smoothed (m),TMS334_LP Vertical Distance Smoothed (m),"
+    "TMS334_DH Angle Smoothed (deg),TMS334_Est Drag Force (kN),"
+    "Submerged Weight Used (kg)"
+)
+
 HTML_FILE = os.path.join(SCRIPT_DIR, "obn_speedview_v5.html")
 
 # Static asset roots the HTTP server is allowed to serve from, and the
@@ -105,6 +117,51 @@ _tms_state = {
     "TMS334": {"window": deque(maxlen=TMS_FILTER_WINDOW), "last_epoch": None, "last_filtered": None},
 }
 
+# ── Drag Analysis archive (backend mirror of js/drag-analysis.js) ──────
+# The Drag Analysis panel's Range/VDist smoothing, DH Angle smoothing, and
+# estimated Force are normally computed client-side, only while a browser
+# has the panel open. This archives the same derivation continuously on
+# the bridge itself — like the main CSV and node-fix archives — so it
+# keeps recording regardless of whether any browser is connected. Only
+# production-speed rows (<= DRAG_SPEED_LIMIT_KT) are archived, matching
+# the panel's own "NOT IN PRODUCTION" gate.
+#
+# Submerged weight is editable live from the GUI (DRAG WEIGHT field) since
+# the backend has no visibility into a browser's Advanced-panel override —
+# see get_drag_weight_kg(). Changing it only affects rows archived from
+# that point forward; it never rewrites what's already on disk. Every row
+# also records the exact weight used for its own Force figure (the last
+# CSV column), so past rows stay fully interpretable/reproducible no
+# matter how many times the weight is changed later — Force is always
+# recoverable from Range/VDist/weight alone if you ever want to recompute
+# it differently.
+DRAG_FILTER_WINDOW       = 5     # samples — same window as the frontend
+DRAG_MAX_GAP_SEC         = 5.0   # seconds — dropout gap resets Range/VDist smoothing
+DRAG_SPEED_LIMIT_KT      = 1.5   # kt — rows above this are not archived
+DRAG_SUBMERGED_WEIGHT_DEFAULT_KG = 2606  # kg — initial value, editable live via the GUI
+DRAG_MIN_VDIST_M         = 0.5   # m — below this the Range/VDist ratio is untrusted
+G_ACCEL                  = 9.81  # m/s^2
+
+_drag_weight_kg = DRAG_SUBMERGED_WEIGHT_DEFAULT_KG  # last valid value from the GUI field
+
+def get_drag_weight_kg() -> float:
+    return _drag_weight_kg
+
+def set_drag_weight_kg(v: float):
+    """Called by the GUI when the DRAG WEIGHT field changes to a valid
+    positive number. Invalid/blank input is ignored — keeps the last
+    good value in effect, same as the frontend's Advanced-panel input."""
+    global _drag_weight_kg
+    if v is not None and v > 0:
+        _drag_weight_kg = v
+
+_drag_state = {
+    "TMS333": {"range": deque(maxlen=DRAG_FILTER_WINDOW), "vdist": deque(maxlen=DRAG_FILTER_WINDOW),
+               "decl": deque(maxlen=DRAG_FILTER_WINDOW), "last_epoch": None},
+    "TMS334": {"range": deque(maxlen=DRAG_FILTER_WINDOW), "vdist": deque(maxlen=DRAG_FILTER_WINDOW),
+               "decl": deque(maxlen=DRAG_FILTER_WINDOW), "last_epoch": None},
+}
+
 # ── shared state ──────────────────────────────────────────────────────
 clients: set = set()
 msg_queue: queue.Queue = queue.Queue()
@@ -118,6 +175,11 @@ _nf_lock = threading.Lock()
 _nf_day = None
 _nf_file = None
 
+# Drag Analysis archive state
+_drag_lock = threading.Lock()
+_drag_day = None
+_drag_file = None
+
 # Log directory — set via GUI
 log_dir_var = None  # tk.StringVar, set in App.__init__
 
@@ -127,6 +189,7 @@ stats = {
     "fix_count":   0,
     "last_fix_rx": None,
     "last_fix":    "",
+    "drag_count":  0,
     "ws_count":    0,
     "http_port":   8080,
     "ws_port":     8765,
@@ -222,6 +285,29 @@ def read_node_fix_day(day: str) -> list:
                 "id":  parts[4],
             })
     return rows
+
+# ── Drag Analysis archive helpers ───────────────────────────────────────
+def drag_archive_path(day: str) -> str:
+    return os.path.join(DRAG_ARCHIVE_DIR, f"{day}.csv")
+
+def save_drag_row(csv_row: str):
+    global _drag_day, _drag_file
+    day = datetime.datetime.utcnow().strftime("%Y-%m-%d")
+    with _drag_lock:
+        if day != _drag_day:
+            if _drag_file:
+                try:
+                    _drag_file.close()
+                except Exception:
+                    pass
+            path = drag_archive_path(day)
+            is_new = not os.path.exists(path)
+            _drag_file = open(path, "a", buffering=1, encoding="utf-8")
+            if is_new:
+                _drag_file.write(DRAG_CSV_HEADER + "\n")
+            _drag_day = day
+        _drag_file.write(csv_row + "\n")
+        _drag_file.flush()
 
 def parse_node_fix(raw: str, uhd: str):
     """
@@ -504,6 +590,83 @@ def compute_tms_derived(raw_line: str, ts_epoch: float) -> dict:
 
     return out
 
+# ── Drag Analysis archive row derivation ────────────────────────────────
+# Backend mirror of js/drag-analysis.js's ingestPoint()/ingestDecl()/
+# estimateForce() — same field positions parse_udp_to_csv uses, same SMA
+# smoothing window, same tension-balance Force formula. Returns a
+# formatted CSV row ready for save_drag_row(), or None if this sample
+# shouldn't be archived (invalid/missing SOG, or above DRAG_SPEED_LIMIT_KT
+# — see module doc-comment above _drag_state).
+def compute_drag_archive_row(raw_line: str, ts_epoch: float):
+    line = raw_line.strip()
+    if "*" in line:
+        line = line[:line.rfind("*")]
+    parts = line.split(",")
+    if len(parts) < 22:
+        return None
+
+    def safe_float(v):
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            return None
+
+    sog = safe_float(parts[2])
+    if sog is None or sog > DRAG_SPEED_LIMIT_KT:
+        return None
+
+    # Same field positions parse_udp_to_csv uses:
+    #   TMS333 Range/VDist/Decl = parts[8]/[10]/[11]
+    #   TMS334 Range/VDist/Decl = parts[16]/[17]/[18]
+    sources = {
+        "TMS333": (safe_float(parts[8]),  safe_float(parts[10]), safe_float(parts[11])),
+        "TMS334": (safe_float(parts[16]), safe_float(parts[17]), safe_float(parts[18])),
+    }
+
+    weight_kg = get_drag_weight_kg()
+
+    per_beacon = {}
+    for label, (lp_range, lp_vdist, lp_decl) in sources.items():
+        st = _drag_state[label]
+
+        if st["last_epoch"] is not None and (ts_epoch - st["last_epoch"]) > DRAG_MAX_GAP_SEC:
+            st["range"].clear()
+            st["vdist"].clear()
+            # decl smoothing has no gap-reset, matching the frontend's ingestDecl()
+
+        filtered_range = filtered_vdist = None
+        if lp_range is not None and lp_vdist is not None:
+            st["range"].append(lp_range)
+            st["vdist"].append(lp_vdist)
+            filtered_range = sum(st["range"]) / len(st["range"])
+            filtered_vdist = sum(st["vdist"]) / len(st["vdist"])
+            st["last_epoch"] = ts_epoch
+
+        filtered_decl = None
+        if lp_decl is not None:
+            st["decl"].append(lp_decl)
+            filtered_decl = sum(st["decl"]) / len(st["decl"])
+
+        force_kn = None
+        if filtered_range is not None and filtered_vdist is not None and filtered_vdist >= DRAG_MIN_VDIST_M:
+            force_kn = (weight_kg * G_ACCEL * (filtered_range / filtered_vdist)) / 1000
+
+        per_beacon[label] = (filtered_range, filtered_vdist, filtered_decl, force_kn)
+
+    def fmt(v, nd=3):
+        return "" if v is None else f"{v:.{nd}f}"
+
+    dt = datetime.datetime.utcnow()
+    ts = dt.strftime("%Y-%m-%d %H:%M:%S.") + f"{dt.microsecond // 1000:03d}"
+    r333, v333, d333, f333 = per_beacon["TMS333"]
+    r334, v334, d334, f334 = per_beacon["TMS334"]
+    return ",".join([
+        ts, fmt(sog, 2),
+        fmt(r333), fmt(v333), fmt(d333), fmt(f333),
+        fmt(r334), fmt(v334), fmt(d334), fmt(f334),
+        fmt(weight_kg, 1),
+    ])
+
 # ── UDP Listener ──────────────────────────────────────────────────────
 class UdpListener:
     def __init__(self, port, on_data, on_status):
@@ -731,8 +894,14 @@ def on_udp_data(text: str):
         stats["last_rx"]   = time.time()
         stats["last_row"]  = csv_row[:90] + "…"
         save_row(csv_row)
-        tms_derived = compute_tms_derived(text, time.time())
+        now = time.time()
+        tms_derived = compute_tms_derived(text, now)
         msg_queue.put((csv_row, tms_derived))
+
+        drag_row = compute_drag_archive_row(text, now)
+        if drag_row:
+            save_drag_row(drag_row)
+            stats["drag_count"] += 1
 
 def on_udp_status(msg: str, level: str):
     if level == "error":
@@ -892,6 +1061,31 @@ class App(tk.Tk):
 
         frame_log.columnconfigure(1, weight=1)
 
+        # ── DRAG WEIGHT frame ──
+        # Submerged weight used by the Drag Analysis archive's Force
+        # calculation (see get_drag_weight_kg() / compute_drag_archive_row()).
+        # Editable live -- takes effect on the next UDP row -- and every
+        # archived row records the exact weight used, so past rows stay
+        # correct/interpretable no matter how many times this changes.
+        frame_drag = tk.Frame(self, bg=PANEL)
+        frame_drag.pack(fill="x", padx=10, pady=(0, 4))
+
+        tk.Label(frame_drag, text="DRAG WEIGHT (kg):", bg=PANEL, fg=AMBER,
+                 font=MONO).grid(row=0, column=0, padx=(10, 4), pady=6, sticky="w")
+
+        self.drag_weight_var = tk.StringVar(value=str(DRAG_SUBMERGED_WEIGHT_DEFAULT_KG))
+        self.drag_weight_entry = tk.Entry(
+            frame_drag, textvariable=self.drag_weight_var, width=10,
+            bg="#101724", fg=AMBER, insertbackground=AMBER,
+            font=MONO, relief="flat", bd=4)
+        self.drag_weight_entry.grid(row=0, column=1, padx=4, pady=6, sticky="w")
+
+        tk.Label(frame_drag, text="submerged TMS weight for Drag Analysis archive's Force column",
+                 bg=PANEL, fg="#6f8aa3", font=("Consolas", 9), anchor="w"
+                 ).grid(row=0, column=2, padx=(8, 10), pady=6, sticky="w")
+
+        self.drag_weight_var.trace_add("write", self._on_drag_weight_change)
+
         # ── START / STOP buttons ──
         frame_btn = tk.Frame(self, bg=BG)
         frame_btn.pack(fill="x", padx=10, pady=6)
@@ -975,6 +1169,8 @@ class App(tk.Tk):
                  bg=BG, fg="#3d5168", font=("Consolas", 7), pady=1).pack()
         tk.Label(self, text=f"Node fixes: {NODE_FIX_DIR}",
                  bg=BG, fg="#3d5168", font=("Consolas", 7), pady=1).pack()
+        tk.Label(self, text=f"Drag Analysis: {DRAG_ARCHIVE_DIR}",
+                 bg=BG, fg="#3d5168", font=("Consolas", 7), pady=1).pack()
 
         self._dot_state = False
 
@@ -1003,6 +1199,13 @@ class App(tk.Tk):
             self.log_status_var.set(f"✓ Found: {expected}")
         else:
             self.log_status_var.set(f"Today's log not found yet: {expected}")
+
+    def _on_drag_weight_change(self, *_):
+        try:
+            v = float(self.drag_weight_var.get().strip())
+        except (TypeError, ValueError):
+            return  # mid-edit / invalid — keep the last good value in effect
+        set_drag_weight_kg(v)
 
     def on_start(self):
         try:
