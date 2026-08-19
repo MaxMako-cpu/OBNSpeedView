@@ -79,6 +79,28 @@ const SPEED_MAX = 1.5;   // kt
 const RANGE_MAX = 1000;  // m
 const FORCE_MAX = 15;    // kN — bar scale ceiling; the numeric readout is unclamped and can exceed this
 
+// Speed bar fill color — smooth red -> amber -> green gradient driven by the
+// current value (not a fixed color like the other bars), clamped beyond
+// SPEED_COLOR_MAX_KT. Two linear segments through amber avoid the muddy
+// brown a direct red->green RGB lerp would produce at the midpoint.
+const SPEED_COLOR_MAX_KT = 1.4;
+const SPEED_COLOR_STOPS = [
+  { r: 255, g: 77,  b: 106 }, // var(--red)
+  { r: 255, g: 180, b: 84  }, // var(--amber)
+  { r: 62,  g: 224, b: 122 }, // var(--green)
+];
+function speedColor(kt) {
+  const t = Math.max(0, Math.min(1, kt / SPEED_COLOR_MAX_KT));
+  const seg = t * (SPEED_COLOR_STOPS.length - 1);
+  const i = Math.min(SPEED_COLOR_STOPS.length - 2, Math.floor(seg));
+  const lt = seg - i;
+  const a = SPEED_COLOR_STOPS[i], b = SPEED_COLOR_STOPS[i + 1];
+  const r = Math.round(a.r + (b.r - a.r) * lt);
+  const g = Math.round(a.g + (b.g - a.g) * lt);
+  const bl = Math.round(a.b + (b.b - a.b) * lt);
+  return { bg: `rgb(${r}, ${g}, ${bl})`, glow: `rgba(${r}, ${g}, ${bl}, 0.55)` };
+}
+
 // LP Range risk thresholds
 const RANGE_SAFE_MAX    = 500; // < this: safe (green)
 const RANGE_CAUTION_MAX = 700; // < this: caution (amber); >= this: warning (red)
@@ -360,7 +382,17 @@ function updateGroup(key) {
   const sog = drag.lastSog !== null ? drag.lastSog : 0;
 
   if (els.speedVal) els.speedVal.innerHTML = enabled ? sog.toFixed(2) + '<span class="unit"> kn</span>' : '<span class="drag-bar-off">off</span>';
-  if (els.speedFill) els.speedFill.style.height = enabled ? Math.min(100, (sog / SPEED_MAX) * 100) + "%" : "0%";
+  if (els.speedFill) {
+    els.speedFill.style.height = enabled ? Math.min(100, (sog / SPEED_MAX) * 100) + "%" : "0%";
+    if (enabled) {
+      const c = speedColor(sog);
+      els.speedFill.style.background = c.bg;
+      els.speedFill.style.boxShadow = `inset 0 1px 0 rgba(255,255,255,0.12), 0 0 10px ${c.glow}`;
+    } else {
+      els.speedFill.style.background = "";
+      els.speedFill.style.boxShadow = "";
+    }
+  }
 
   if (!enabled || b.lastFilteredDecl === null) {
     if (els.dhVal) els.dhVal.innerHTML = !enabled ? '<span class="drag-bar-off">off</span>' : '&mdash;';
