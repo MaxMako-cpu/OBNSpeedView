@@ -14,6 +14,7 @@ import { getUserPanned, setUserPanned, isScrollLocked } from './pan-zoom.js';
 import { getWs, isLiveMode, isInArchiveView, setInArchiveView, _showAutoUpdate, _hideAutoUpdate, _startAutoLogTimer, _stopAutoLogTimer, switchToLive } from './websocket.js';
 import { clearReadout } from './readout.js';
 import { ingestRow as ingestDragRow, reset as resetDragAnalysis } from './drag-analysis.js';
+import { ingestLiveRow as ingestEtaRow } from './eta-calculator.js';
 
 const btnUpdateLog = document.getElementById("btn-update-log");
 const archiveSelect  = document.getElementById("archive-select");
@@ -201,6 +202,12 @@ export function handleLiveRow(csvRow) {
 
   // Drag Analysis panel — accumulate speed/LP-range correlation
   ingestDragRow(row);
+
+  // ETA Calculator — dead-reckon plan progress from live speed. Deliberately
+  // NOT wired into applySpeedData()'s archive-load path (unlike Drag
+  // Analysis) — replaying a day's rows instantly would make "elapsed time"
+  // meaningless for this tool.
+  ingestEtaRow(row);
 
   // auto-scroll only if user hasn't manually panned the view
   if (!getUserPanned()) {

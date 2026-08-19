@@ -5,9 +5,9 @@
    render.js's curve-drawer / overlay-renderer registration, etc.) runs
    exactly once, in this fixed order, before the initial render() call
    below. Some modules (report.js, pan-zoom.js, lp-live.js, alt-overlay.js,
-   live-data.js, drag-analysis.js) are imported purely for their side
-   effects — nothing here consumes their exports directly, but their
-   button/canvas wiring must still execute.
+   live-data.js, drag-analysis.js, eta-calculator.js) are imported purely
+   for their side effects — nothing here consumes their exports directly,
+   but their button/canvas wiring must still execute.
    ====================================================================== */
 import { state } from './state.js';
 import { fmtDate } from './utils.js';
@@ -25,6 +25,7 @@ import './lp-live.js';
 import './live-data.js';
 import './alt-overlay.js';
 import './drag-analysis.js';
+import './eta-calculator.js';
 
 const chartWrap    = document.getElementById("chart-wrap");
 const regionHintEl = document.getElementById("region-hint");

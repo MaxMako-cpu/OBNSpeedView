@@ -71,6 +71,8 @@
       <div style="width:1px;height:22px;background:var(--grid);flex-shrink:0;margin:0 2px;"></div>
       <button class="tbtn" id="btn-drag-analysis" title="Vessel speed vs TMS LP Range history, based on real measured data">DRAG ANALYSIS</button>
       <div style="width:1px;height:22px;background:var(--grid);flex-shrink:0;margin:0 2px;"></div>
+      <button class="tbtn" id="btn-eta-calc" title="Planned vs live actual ETA to a final waypoint">ETA CALCULATOR</button>
+      <div style="width:1px;height:22px;background:var(--grid);flex-shrink:0;margin:0 2px;"></div>
       <button class="tbtn" id="btn-node-fixes">NODE FIXES</button>
       <div style="width:1px;height:22px;background:var(--grid);flex-shrink:0;margin:0 2px;"></div>
       <button class="tbtn" id="btn-scroll" title="Lock view — pan and zoom freely without auto-recenter">SCROLL</button>
@@ -522,6 +524,102 @@
     <div class="drag-footer">
       <span>Live values and the trend charts below are both real-time measurements &mdash; nothing modeled or projected</span>
       <span id="drag-footer-n">&mdash;</span>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modal-eta-calculator">
+  <div class="modal eta-modal">
+    <div class="eta-header">
+      <div class="eta-header-mark"></div>
+      <div class="eta-header-title">ETA CALCULATOR</div>
+      <div class="eta-header-sub">Planned vs. live actual ETA to final WP</div>
+      <div class="toolbar-spacer"></div>
+      <button id="eta-panel-close">CLOSE</button>
+    </div>
+
+    <div class="eta-scroll-body">
+      <!-- ---- setup form ---- -->
+      <div class="eta-form-card" id="eta-form-card">
+        <div class="eta-field">
+          <label>Final WP Name</label>
+          <input type="text" id="eta-in-name" value="" placeholder="e.g. Line 42 End">
+        </div>
+
+        <div class="eta-legs-section">
+          <div class="eta-legs-header">
+            <label>Legs &amp; ROV Deploy/Recovery holds, in order</label>
+            <div class="eta-legs-header-btns">
+              <button class="eta-btn-add-leg" id="eta-btn-add-leg">+ ADD LEG</button>
+              <button class="eta-btn-add-hold" id="eta-btn-add-hold">+ ADD ROV DEPLOY/RECOVERY</button>
+            </div>
+          </div>
+          <div class="eta-legs-table-head">
+            <span></span><span>Distance (m) / Hrs</span><span>Speed (kt) / Min</span><span style="text-align:right;">Duration</span><span></span>
+          </div>
+          <div id="eta-legs-list"></div>
+        </div>
+
+        <div class="eta-total-preview" id="eta-total-preview">&mdash;</div>
+
+        <div class="eta-tz-row">
+          <label class="eta-tz-label">Local Time</label>
+          <div class="eta-tz-chip-row">
+            <div class="eta-tz-chip" data-mode="auto">Auto (browser)</div>
+            <div class="eta-tz-chip" data-mode="manual">Manual offset</div>
+          </div>
+          <input type="number" class="eta-tz-offset-input" id="eta-in-tz-offset" value="0" step="0.5" placeholder="UTC+">
+          <span class="eta-tz-hint" id="eta-tz-hint">&nbsp;</span>
+        </div>
+
+        <div class="eta-form-actions">
+          <button class="eta-btn-primary" id="eta-btn-calc">CALCULATE &amp; START TRACKING</button>
+        </div>
+      </div>
+
+      <!-- ---- live state ---- -->
+      <div class="eta-live-state" id="eta-live-state">
+        <div class="eta-live-summary">
+          <span>WP: <b id="eta-sum-name">&mdash;</b></span>
+          <span>&middot;</span>
+          <span>Total dist: <b id="eta-sum-dist">&mdash;</b></span>
+          <span>&middot;</span>
+          <span>On leg: <b id="eta-sum-leg">&mdash;</b></span>
+          <span class="toolbar-spacer"></span>
+          <span>Started: <b id="eta-sum-start">&mdash;</b></span>
+        </div>
+
+        <div class="eta-cards">
+          <div class="eta-card planned">
+            <div class="eta-card-title">Planned ETA (fixed)</div>
+            <div class="eta-time-row"><span class="eta-time-label">UTC</span><span class="eta-time-val utc" id="eta-planned-utc">&mdash;</span></div>
+            <div class="eta-time-row"><span class="eta-time-label">Local</span><span class="eta-time-val local" id="eta-planned-local">&mdash;</span></div>
+          </div>
+          <div class="eta-card actual">
+            <div class="eta-card-title">Actual ETA (live, smoothed)</div>
+            <div class="eta-time-row"><span class="eta-time-label">UTC</span><span class="eta-time-val utc" id="eta-actual-utc">&mdash;</span></div>
+            <div class="eta-time-row"><span class="eta-time-label">Local</span><span class="eta-time-val local" id="eta-actual-local">&mdash;</span></div>
+          </div>
+        </div>
+
+        <div class="eta-adjust-badge ok" id="eta-adjust-badge">
+          <div class="eta-adjust-icon" id="eta-adjust-icon">&#10003;</div>
+          <div class="eta-adjust-text" id="eta-adjust-text">Waiting for live speed data&hellip;</div>
+        </div>
+
+        <div class="eta-graph-card">
+          <h4>ETA Tracking</h4>
+          <div class="eta-graph-wrap"><canvas id="eta-chart"></canvas></div>
+          <div class="eta-graph-legend">
+            <div class="li"><span class="eta-swatch dashed"></span>Planned ETA</div>
+            <div class="li"><span class="eta-swatch solid"></span>Actual ETA (live)</div>
+            <div class="li"><span class="eta-swatch band"></span>Planned ROV Deploy/Recovery window</div>
+          </div>
+        </div>
+
+        <div class="eta-footer-note">Actual ETA assumes current speed is closing distance directly toward the WP (dead-reckoned from live speed &times; elapsed time) &mdash; not derived from WP coordinates. Real course deviations (survey lines, holding) will make it drift.</div>
+        <div class="eta-footer-actions"><button class="eta-btn-secondary" id="eta-btn-reset">RESET / NEW CALCULATION</button></div>
+      </div>
     </div>
   </div>
 </div>
