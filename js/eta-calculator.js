@@ -91,6 +91,23 @@ function fmtLocal(epochSec) {
   }
   return fmtHMS(epochSec, tzOffsetHr) + ` (UTC${tzOffsetHr >= 0 ? "+" : ""}${tzOffsetHr})`;
 }
+// Date-inclusive variants for the Planned/Actual ETA cards — a multi-leg
+// plan (especially with ROV holds) can easily run past midnight, so the
+// bare time-of-day alone can be ambiguous about which day it lands on.
+function fmtDateTime(epochSec, offsetHr) {
+  const ms = offsetHr ? (epochSec + offsetHr * 3600) * 1000 : epochSec * 1000;
+  const d = new Date(ms);
+  const p2 = (n) => String(n).padStart(2, "0");
+  return `${d.getUTCFullYear()}-${p2(d.getUTCMonth() + 1)}-${p2(d.getUTCDate())} ${p2(d.getUTCHours())}:${p2(d.getUTCMinutes())}:${p2(d.getUTCSeconds())}`;
+}
+function fmtLocalDateTime(epochSec) {
+  if (tzMode === "auto") {
+    const d = new Date(epochSec * 1000);
+    const p2 = (n) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())} ` + d.toLocaleTimeString([], { hour12: false });
+  }
+  return fmtDateTime(epochSec, tzOffsetHr) + ` (UTC${tzOffsetHr >= 0 ? "+" : ""}${tzOffsetHr})`;
+}
 function fmtDur(sec) {
   if (sec === null || !Number.isFinite(sec)) return "&mdash;";
   sec = Math.max(0, Math.round(sec));
@@ -160,6 +177,7 @@ const plannedUtcEl   = document.getElementById("eta-planned-utc");
 const plannedLocalEl = document.getElementById("eta-planned-local");
 const actualUtcEl    = document.getElementById("eta-actual-utc");
 const actualLocalEl  = document.getElementById("eta-actual-local");
+const actualCardEl   = document.getElementById("eta-card-actual");
 const adjustBadge = document.getElementById("eta-adjust-badge");
 const adjustIcon  = document.getElementById("eta-adjust-icon");
 const adjustText  = document.getElementById("eta-adjust-text");
@@ -402,6 +420,21 @@ function recomputeActual(epoch) {
   }
 }
 
+// Actual ETA card fill — smooth green -> red gradient driven by how far the
+// live Actual ETA has drifted past the fixed Planned ETA, clamped over a
+// 1-hour step. On-time or running early/faster (delta <= 0) is full green;
+// 1 hour or more late is full red; everything between interpolates smoothly.
+const ACTUAL_ETA_GRADIENT_STEP_SEC = 3600;
+const ACTUAL_ETA_COLOR_GREEN = { r: 62, g: 224, b: 122 };
+const ACTUAL_ETA_COLOR_RED   = { r: 255, g: 77, b: 106 };
+function actualEtaFillColor(deltaSec) {
+  const t = Math.max(0, Math.min(1, deltaSec / ACTUAL_ETA_GRADIENT_STEP_SEC));
+  const r = Math.round(ACTUAL_ETA_COLOR_GREEN.r + (ACTUAL_ETA_COLOR_RED.r - ACTUAL_ETA_COLOR_GREEN.r) * t);
+  const g = Math.round(ACTUAL_ETA_COLOR_GREEN.g + (ACTUAL_ETA_COLOR_RED.g - ACTUAL_ETA_COLOR_GREEN.g) * t);
+  const b = Math.round(ACTUAL_ETA_COLOR_GREEN.b + (ACTUAL_ETA_COLOR_RED.b - ACTUAL_ETA_COLOR_GREEN.b) * t);
+  return { bg: `rgba(${r}, ${g}, ${b}, 0.18)`, glow: `rgba(${r}, ${g}, ${b}, 0.5)` };
+}
+
 function speedAdjustment(epoch) {
   if (!plan) return null;
   const remaining = plan.totalDist - coveredDist;
@@ -533,12 +566,23 @@ function updateLiveView() {
     }
   }
 
-  if (plannedUtcEl) plannedUtcEl.textContent = fmtHMS(plan.plannedEtaEpoch);
-  if (plannedLocalEl) plannedLocalEl.textContent = fmtLocal(plan.plannedEtaEpoch);
+  if (plannedUtcEl) plannedUtcEl.textContent = fmtDateTime(plan.plannedEtaEpoch);
+  if (plannedLocalEl) plannedLocalEl.textContent = fmtLocalDateTime(plan.plannedEtaEpoch);
 
   const lastActual = history.length ? history[history.length - 1].actualEtaEpoch : null;
-  if (actualUtcEl) actualUtcEl.textContent = lastActual !== null ? fmtHMS(lastActual) : "—";
-  if (actualLocalEl) actualLocalEl.textContent = lastActual !== null ? fmtLocal(lastActual) : "—";
+  if (actualUtcEl) actualUtcEl.textContent = lastActual !== null ? fmtDateTime(lastActual) : "—";
+  if (actualLocalEl) actualLocalEl.textContent = lastActual !== null ? fmtLocalDateTime(lastActual) : "—";
+
+  if (actualCardEl) {
+    if (lastActual === null) {
+      actualCardEl.style.background = "";
+      actualCardEl.style.boxShadow = "";
+    } else {
+      const c = actualEtaFillColor(lastActual - plan.plannedEtaEpoch);
+      actualCardEl.style.background = c.bg;
+      actualCardEl.style.boxShadow = `inset 0 0 0 1px ${c.glow}`;
+    }
+  }
 
   const adj = speedAdjustment(nowEpoch);
   if (adjustBadge && adjustIcon && adjustText) {

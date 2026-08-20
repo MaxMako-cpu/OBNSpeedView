@@ -1230,8 +1230,9 @@ input[type=file] { display: none; }
    ====================================================================== */
 .eta-modal {
   min-width: 0;
-  width: min(880px, 96vw);
-  max-width: min(880px, 96vw);
+  width: 97vw;
+  height: 92vh;
+  max-width: 97vw;
   max-height: 92vh;
   padding: 0;
   display: flex;
@@ -1381,7 +1382,7 @@ input[type=file] { display: none; }
 .eta-form-actions { display: flex; justify-content: flex-end; }
 
 /* ---- live state ---- */
-.eta-live-state { display: none; flex-direction: column; gap: 16px; }
+.eta-live-state { display: none; flex-direction: column; gap: 16px; flex: 1; min-height: 0; }
 .eta-live-state.show { display: flex; }
 .eta-form-card.hide { display: none; }
 
@@ -1418,9 +1419,10 @@ input[type=file] { display: none; }
 .eta-graph-card {
   background: var(--panel-2); border: 1px solid var(--grid); border-radius: var(--radius);
   padding: 14px 16px; display: flex; flex-direction: column; gap: 8px;
+  flex: 1; min-height: 260px;
 }
 .eta-graph-card h4 { margin: 0; font-size: 12px; letter-spacing: 1px; color: var(--text); font-weight: 800; text-transform: uppercase; }
-.eta-graph-wrap { position: relative; height: 220px; }
+.eta-graph-wrap { position: relative; flex: 1; min-height: 0; }
 .eta-graph-wrap canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
 .eta-graph-legend { display: flex; gap: 16px; font-size: 10.5px; color: var(--text-dim); flex-wrap: wrap; }
 .eta-graph-legend .li { display: flex; align-items: center; gap: 6px; }
